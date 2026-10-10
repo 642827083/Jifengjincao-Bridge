@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>导入题目</title><style>/* 导入样式 */</style></head>
+<body><div class="app-shell"><main class="workspace">
+<aside class="filters" aria-label="试卷筛选">
+  <div class="filter-heading"><h2>筛选条件</h2><button id="refresh-catalog">刷新</button></div>
+  <fieldset><legend>试卷类型</legend><div class="segments" id="kinds"><button data-kind="official" aria-pressed="true">历年真题</button><button data-kind="mock" aria-pressed="false">模拟卷</button></div></fieldset>
+  <fieldset><legend>题型</legend><div class="type-list"><label><input type="checkbox" data-type="choice" checked>选择题</label><label><input type="checkbox" data-type="blank" checked>填空题</label><label><input type="checkbox" data-type="solution" checked>解答题</label></div></fieldset>
+  <fieldset class="paper-field"><legend id="catalog-title">历年真题</legend><p id="catalog-status" class="muted" role="status">正在读取试卷…</p><div id="papers" class="paper-tree" aria-label="试卷分类"></div><p class="muted paper-hint">展开分类，选择一份试卷查看题目</p></fieldset>
+  <p class="session-hint">需要登录时，请到“数学”页面登录后刷新。</p>
+</aside>
+<section class="right-pane" aria-label="题目与导入"><div class="results" aria-label="匹配题目">
+  <div class="result-toolbar"><div><h2 id="paper-title">具体题目</h2><p id="selection-count">请在左侧选择一份试卷</p></div><div class="toolbar-actions"><button id="refresh-status">刷新</button><button id="select-all">全选</button><button id="select-none">全不选</button></div></div>
+  <p id="target" class="muted"></p><div id="error" class="error-banner" role="alert" hidden></div>
+  <div id="empty" class="empty-state">选择试卷后，勾选需要导入的题目</div><div id="questions" class="question-list"></div>
+  <div id="result" class="result-summary" role="status" hidden></div>
+  <button id="retry" hidden>重试失败题</button>
+</div>
+<footer class="action-bar"><p id="progress" role="status" aria-live="polite">等待导入</p><div class="import-row"><div class="content-control"><span>导入内容</span><div class="segments" id="contents"><button data-content="question" aria-pressed="false">仅题目</button><button data-content="questionAnswer" aria-pressed="true">题目＋答案</button></div></div><button id="stop" hidden>停止</button><button id="import" class="primary-button" disabled>导入 0 道题</button></div></footer>
+</section></main></div><script>/* 导入脚本 */</script></body></html>
