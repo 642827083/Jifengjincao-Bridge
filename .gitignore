@@ -4,3 +4,10 @@ dist-release/
 src/web-dist/
 *.mnaddon
 *.mnaddon.zip
+AGENTS.md
+*社区介绍*.md
+*.gitignore.tmp
+.DS_Store
+docs/previews/*.png
+docs/*preview*.png
+docs/*preview*.json
