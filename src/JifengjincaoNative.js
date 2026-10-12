@@ -77,8 +77,8 @@ var __JFJC_NATIVE__ = (function () {
       if (/data:image\//.test(markdown)) {
         if (typeof wrapped.processMarkdownBase64Images !== 'function') throw new Error('MN Utils 缺少图片转存接口，请更新 MN Utils');
         wrapped.processMarkdownBase64Images();
-        const managed = comments(note).filter(function (text) { return /<!-- JFJC_/.test(text); });
-        if (managed.some(function (text) { return /data:image\//.test(text); }) || !String(value(raw(note), 'mediaList') || '')) throw new Error('图片未完整转存，已保留为未完成题目');
+        const appended = comments(note).slice(before);
+        if (appended.some(function (text) { return /data:image\//.test(text); }) || !String(value(raw(note), 'mediaList') || '')) throw new Error('图片未完整转存，已保留为未完成题目');
       }
     } catch (error) {
       // 仅清理本次追加的评论，既有笔记、手写和已补齐内容保留。

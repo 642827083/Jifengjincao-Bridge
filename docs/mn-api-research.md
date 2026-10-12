@@ -1,5 +1,19 @@
 # MarginNote / MN Utils 接口核验
 
+### 2026-10-13：导航入口与题篮工具
+
+本轮同时移除网页诊断的原生界面、探针、轮询及安装包资源，保留加载就绪检查与普通错误处理；批量建卡路径取消题型层，复用原有 addChild / insertChildBefore 和全学习集身份扫描。没有新增 MN 接口，不迁移已有题型分组或用户批注。
+
+最新官方站本次仍不可读取，重新阅读运行时、全局对象及 UIWebView 文档。沿用同源脚本注入、短 scheme 与分块传输，不新增 MN API 或网站写接口。本站当前公开部署包 `/assets/index-DNVX-les.js` 确认 `.topbar .primary-nav` 的第一个导航组为 AI 组件；入口放在导航组件之前的兄弟节点，React 替换导航后由观察器恢复。部署源码的题篮详情使用 `.basket-detail-page`（公开题篮为 `.shared-basket-page`）、`article.basket-detail-question-card`、`basket-question-<id>` 和 `.question-global-id`，私人与公开题篮分别使用 `/baskets/:id`、`/public-baskets/:id`。只通过已加载的 DOM 读取题目身份，完整内容与原卷信息仍读取同源 `/api/questions/:id`；页面节点或题目序列变化会拒绝旧预览。定位和单题导入复用现有检查 MN Utils 可用性的实现。未测试真实登录题篮和 iPad WebView，自动化验证不替代真机验收。
+
+### 2026-10-12：AI 找题与导入本题
+
+重新核验 JavaScriptCore 运行时、全局对象及 mndocs 的 [NotebookController](https://mn-docs.museday.top/reference/marginnote/notebook-controller/) 与 [MbBookNote](https://mn-docs.museday.top/reference/marginnote/mb-book-note/)：当前窗口的 `focusNote`、`notebookId` 用于同步捕获落点；`parentNote`、`childNotes` 及 `insertChildBefore` 用于同级插入。复用已有检查接口可用性的 MN Utils 包装创建卡片、追加 Markdown、图片转存和撤销分组。新文档站本次不可读取，MN Utils 在线 Craft 正文仍不可读取，未据此引入未经核验的封装。参考本地大观园 `DaguanyuanSingleImport.js` / `DaguanyuanMathImport.js` 的预捕获、子节点／同级节点与同父身份去重行为。
+
+网站公开部署包 `/assets/index-DNVX-les.js` 确认 AI 找题地址及快照 DOM；公开 `/api/questions/5395` 返回 `papers` 中的原卷 ID、标题及原题号。DOM 只读取题号和最新结果边界并插入入口，题干、LaTeX、选项、答案、图片和来源读取同源 API。`single-import` / `cancel-single` 仍走短 scheme，长数据经原生分块传输；不读取 React 私有状态，不新增网站写接口或站外会话。公开题目验证不能代替登录账号的找题功能和真实 MN 验收。
+
+2026-10-12 补充（cn 站点与设置诊断）：先尝试最新官方文档 `https://mnext.museday.top/`，本次网页工具无法读取；按通用规范改用 mn-docs-mcp 阅读 UIWebView、UIButton 与 UIScrollView 全文，并重新读取运行时及全局对象文档。继续使用既有原生 `loading`、`evaluateJavaScript`、`NSTimer`、`addTargetActionForControlEvents` 和设置页滚动布局，没有新增 MN 数据库接口。诊断入口与报告只在设置显示，保留 cn 同源业务校验、加载等待、敏感信息遮蔽及旧回调取消。自动化验证通过，真实 MN 外观仍需设备确认。
+
 2026-10-08 补充（注释集中到第二条）：用户确认移除原题链接开关，题目卡第一条保存完整图文，第二条先放“查看原题”再放 QUESTION / ORDER / SOURCE。重新查阅运行时、全局对象和 MbBookNote 文档及 MN Utils 官方公开 JSON，继续使用现有 `appendMarkdownComment`、`removeCommentByIndex`、评论排序及 `undoGrouping`，没有新增 MN API。去重、原卷排序和定位本来扫描卡片所有评论，不要求身份在题干。旧卡迁移先保存正文与完整身份，再清理旧位置；保留用户笔记、手写、媒体、子卡及标题，处理失败可重试及撤销。答案子卡仍按原结构保存自己的 PART / ANSWER 注释。本轮为模拟宿主验证，真实评论显示需真机确认。
 
 2026-10-07 补充（定位校验返回值）：重新查阅运行时、全局对象及 [UIWebView](https://mn-docs.museday.top/reference/uikit/uiwebview/) 文档，`evaluateJavaScript` 回调结果标为 `any`，不能依赖始终返回 JS 布尔值。本次不增加 MN API，沿用 `BBKaoyanClipboard.accepted` 的文字确认模式，在网页内将校验结果变成 `accepted`／`rejected`，原生侧按 String 读取；测试覆盖 BOOL 被转换为字符串 1 和 NSString／NSNumber 包装的情况，同时校验无效题目仍不能通过。
@@ -125,3 +139,15 @@ MN Utils 的公开 API 文档确认复制图片的封装，但未发现适用的
 再次读取公开部署包 `/assets/index-DC-ecNON.js`，确认 `_4` 输入框组件共用于复盘、解题及找题；附件操作栏为 `.assistant-composer-actions`，解题 quiet 模式使用 `.assistant-upload-trigger`，普通模式为 `.assistant-upload-button`，Pro 可选。所有这些输入框使用相同的 onPaste、文件校验及 `onAttachmentReady` 路径，因此粘贴入口可放在操作栏并沿用原有上传行为。
 
 模拟原生 evaluateJavaScript 的布尔返回值转数字 1 时，旧 accepted 判断会拒绝；不依赖宿主的布尔转换约定，改为在页面端将同步布尔结果转换为 accepted / rejected 文本再跨桥返回。这是代码回放证据，并未直接采集用户 MN 的原生回调类型。再次阅读 JavaScriptCore 运行时和全局对象文档；未新增原生 API 或直接上传接口。
+
+### 2026-10-13：文字与图片统一粘贴
+
+先访问新版 API 站点 `https://mnext.museday.top/`，此次工具无法访问，改用 mndocs 检索并读取 UIPasteboard 全文；[UIPasteboard](https://mn-docs.museday.top/reference/uikit/uipasteboard/) 明确 `generalPasteboard().string` 用于读取剪贴板文本。再次阅读 JavaScriptCore 运行时与全局对象文档。沿用已有原生剪贴板读取，不需要新增 MN Utils 依赖；同时存在图片与文字时优先读取图片，只在用户点击时取值，文字不进入持久存储。
+
+当日检查网站公开部署脚本 `/assets/index-DNVX-les.js`，共用 AI 输入框的 textarea 使用 React 受控 `value`，`onChange` 从 `event.target.value` 更新草稿；`onPaste` 只处理文件。因此图片继续派发网站原有 paste 事件，文字则通过 HTMLTextAreaElement 原生 value setter 和冒泡 input 事件同步网站草稿，不读取 React 私有属性、不调用发送接口。文字在网页侧分块接收，提前保存选区，提交前核对对话、题目、输入框和草稿，保留原草稿前后内容并将光标移到插入末尾。附件满额只限制图片，不限制文字。
+
+### 2026-10-13：AI 工具显示粘贴开关
+
+再次访问新版文档站点（工具无法访问），通过 mndocs 读取 [UISwitch](https://mn-docs.museday.top/reference/uikit/uiswitch/) 与 [NSUserDefaults](https://mn-docs.museday.top/reference/foundation/ns-user-defaults/) 全文，并复核原生运行时及全局入口。开关沿用 `new UISwitch(frame)`、`on` 属性与 `1 << 12` 的 ValueChanged 事件，配置复用项目原生偏好封装，插件前缀 key 为 `ai-tools.show-paste`，未保存时默认开启。
+
+网页不保存此业务开关，由原生在注入、打开面板、返回数学页及操作开关时同步。关闭后移除按钮并取消尚未提交的接收；原生命令和剪贴板入口同样检查开关，旧网页命令不会继续读取剪贴板。保留网站原有输入、上传及系统粘贴行为，不更改用户已有草稿或附件。

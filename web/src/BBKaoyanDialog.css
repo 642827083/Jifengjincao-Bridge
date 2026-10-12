@@ -1,5 +1,8 @@
-#jfjc-toolbar{position:fixed;right:16px;bottom:20px;z-index:2147483000;display:flex;gap:6px;padding:8px;background:#f5f5f7;border:1px solid #ddd;border-radius:10px;box-shadow:0 4px 16px #0002}
-#jfjc-toolbar button{font:14px sans-serif;color:#195db5;background:white;border:1px solid #d6dbe1;border-radius:7px;padding:8px 12px;cursor:pointer}
+#jfjc-toolbar{display:flex;align-items:center;flex:0 0 auto}
+#jfjc-toolbar button{display:inline-flex;align-items:center;justify-content:center;font:inherit;font-weight:800;font-size:calc(15px * var(--desktop-ui-density,1));line-height:1.4;min-height:calc(42px * var(--desktop-ui-density,1));color:#195db5;background:transparent;border:0;border-radius:calc(12px * var(--desktop-ui-density,1));padding:0 calc(10px * var(--desktop-ui-density,1));white-space:nowrap;cursor:pointer}
+#jfjc-toolbar button:not(:disabled):hover{background:#edf3fa}
+#jfjc-toolbar button:focus-visible{outline:2px solid #195db5;outline-offset:2px}
+#jfjc-toolbar button:disabled{opacity:.45;cursor:default}
 #jfjc-dialog,#jfjc-dialog *{box-sizing:border-box}
 #jfjc-dialog{position:fixed;left:0;top:0;width:100%;height:100%;z-index:2147483100;background:#17212f45;display:flex;align-items:center;justify-content:center;padding:16px;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#23313b}
 #jfjc-dialog [hidden],#jfjc-dialog[hidden],#jfjc-toolbar[hidden]{display:none!important}

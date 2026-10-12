@@ -9,7 +9,7 @@
   function context() {
     const paper = /^\/papers\/([1-9]\d*)\/?$/.exec(window.location.pathname);
     const question = /^\/questions\/([1-9]\d*)\/?$/.exec(window.location.pathname);
-    return paper ? { paperId: Number(paper[1]) } : question ? { questionId: Number(question[1]) } : null;
+    return paper ? { paperId: Number(paper[1]) } : question ? { questionId: Number(question[1]) } : window.__JFJC_SELECTION__.searchPage() ? { search: true } : window.__JFJC_SELECTION__.basketPage() ? { basket: true } : null;
   }
   function focusSource() {
     const hash = String(window.location.hash || ''), match = /^#question-([1-9]\d*)$/.exec(hash), ctx = context();
@@ -24,6 +24,8 @@
   function stop(message) { const error = new Error(message); error.stopImport = true; throw error; }
   function ensure(session) {
     if (state.cancelled || !state.session || (session && session !== state.session) || state.session.route !== route()) throw new Error('导入已取消或页面已切换');
+    if (state.session.snapshot && !window.__JFJC_SELECTION__.same(state.session.snapshot)) throw new Error((state.session.basket ? '题篮内容' : '找题结果') + '已变化，请重新打开选题导入');
+    if (state.session.directTarget && !window.__JFJC_QUESTION_TOOLS__.matchesSingle(state.session.directTarget)) throw new Error('当前题目已切换，请重新点击导入本题');
   }
   function wait(ms) { return new Promise(function (resolve) { window.setTimeout(resolve, ms); }); }
   function assetURL(raw) {
@@ -119,6 +121,20 @@
     return visible.length ? Number(visible[0].id.slice(9)) : 0;
   }
   async function envelope(ctx, session) {
+    if (ctx.search || ctx.basket) {
+      const snapshot = window.__JFJC_SELECTION__.capture();
+      if (!snapshot || !snapshot.ids.length) throw new Error(ctx.basket ? '当前题篮暂无可导入题目' : '当前找题结果暂无可导入题目');
+      if (snapshot.ids.length > 500) throw new Error('单次最多导入 500 道题目');
+      session.snapshot = snapshot;
+      session.basket = Boolean(ctx.basket);
+      const rows = [];
+      for (const id of snapshot.ids) {
+        const q = await request('/api/questions/' + id, false, session);
+        if (q.id !== id) throw new Error('网站返回的题目与当前选择不符');
+        rows.push(window.__JFJC_SELECTION__.row(q, rows.length + 1));
+      }
+      return { collection: ctx.basket ? 'basket' : 'ai-search', paper: { id: 0, title: ctx.basket ? '题篮' : 'AI 找题结果', subject: rows[0].question.subject }, questions: rows };
+    }
     if (ctx.paperId) return request('/api/papers/' + ctx.paperId + '/questions', false, session);
     const q = await request('/api/questions/' + ctx.questionId, false, session);
     const papers = (q.papers || []).filter(function (p) { return Number.isSafeInteger(Number(p.id)) && Number(p.id) > 0; });
@@ -148,7 +164,8 @@
         const id = Number(q.id), number = escape(r.question_number), type = escape(types[q.question_type] || r.section_title || '');
         // 摘要仅显示转义后的文本；完整 Markdown、LaTeX 和图片仍走原有导入流程。
         const excerpt = escape(String(q.stem_latex || q.stem || '题干见原题').replace(/\s+/g, ' ').slice(0, 180));
-        return '<div class="jfjc-row"><label class="jfjc-check"><input type="checkbox" id="jfjc-check-' + id + '" data-id="' + id + '" aria-label="选择第 ' + number + ' 题"' + (state.selected[id] ? ' checked' : '') + '></label><div class="jfjc-rowbody"><label for="jfjc-check-' + id + '" class="jfjc-rowtitle"><b>第 ' + number + ' 题</b><span>' + type + '</span></label><div class="jfjc-excerpt" id="jfjc-excerpt-' + id + '">' + excerpt + '</div></div></div>';
+        const title = (data.collection === 'ai-search' && r.sourcePaper ? escape(r.sourcePaper.title) + ' · ' : '') + '第 ' + number + ' 题';
+        return '<div class="jfjc-row"><label class="jfjc-check"><input type="checkbox" id="jfjc-check-' + id + '" data-id="' + id + '" aria-label="选择第 ' + number + ' 题"' + (state.selected[id] ? ' checked' : '') + '></label><div class="jfjc-rowbody"><label for="jfjc-check-' + id + '" class="jfjc-rowtitle"><b>' + title + '</b><span>' + type + '</span></label><div class="jfjc-excerpt" id="jfjc-excerpt-' + id + '">' + excerpt + '</div></div></div>';
       }).join('') + '</div><div class="jfjc-result" id="jfjc-result" hidden></div></div>' +
       '<footer><div class="jfjc-footer-status"><span id="jfjc-count" aria-live="polite"></span><span id="jfjc-status" role="status" aria-live="polite"></span></div><div class="jfjc-footer-actions"><div class="jfjc-mode"><span>导入内容</span><input type="hidden" id="jfjc-content" value="' + content + '"><div class="jfjc-segments" role="group" aria-label="导入内容"><button data-action="content" data-content="question" aria-pressed="' + (content === 'question') + '">题目</button><button data-action="content" data-content="questionAnswer" aria-pressed="' + (content === 'questionAnswer') + '">题目＋答案</button></div></div><button data-action="retry" id="jfjc-retry" hidden>重试失败题</button><button data-action="commit" id="jfjc-commit">导入</button></div></footer></div>';
     host.querySelectorAll('input[data-id]').forEach(function (input) { input.checked = Boolean(state.selected[input.dataset.id]); });
@@ -190,7 +207,7 @@
   async function open(scope, options) {
     if (state.busy) return 'busy';
     cancel();
-    const ctx = context(); if (!ctx) throw new Error('请先打开一份试卷或题目详情');
+    const ctx = context(); if (!ctx) throw new Error('请打开试卷、题目详情、AI 找题结果或题篮');
     state.cancelled = false;
     state.session = { token: options.token, route: route(), target: options.target, content: options.content };
     const session = state.session;
@@ -207,11 +224,30 @@
     if (state.busy || !state.preview) return;
     const ids = retry ? state.retryIds : Object.keys(state.selected).map(Number);
     if (!ids || !ids.length) { status('请至少选择一道题。'); return; }
-    state.cancelled = false; ensure(); state.busy = true; controls(true);
+    state.cancelled = false;
+    try { ensure(); } catch (error) { status(message(error)); return; }
+    state.busy = true; controls(true);
     document.getElementById('jfjc-result').hidden = true;
     document.getElementById('jfjc-retry').hidden = true;
     state.importRequest = { envelope: state.preview, ids: ids, content: document.getElementById('jfjc-content').value, route: state.session.route };
     native('import', state.session.token); status('正在准备导入…');
+  }
+  function direct(token, target) {
+    if (state.busy || !window.__JFJC_QUESTION_TOOLS__.matchesSingle(target)) return 'rejected';
+    close(); state.cancelled = false;
+    state.session = { token: token, route: route(), directTarget: target };
+    state.busy = true; refresh();
+    const session = state.session;
+    return launch(token, async function () {
+      const q = await request('/api/questions/' + target.questionId, false, session);
+      if (q.id !== target.questionId) throw new Error('网站返回了其他题目');
+      const row = window.__JFJC_SELECTION__.row(q, 1, target.paperId);
+      const originalOrder = Number(row.question_number);
+      if (Number.isFinite(originalOrder) && originalOrder > 0) row.display_order = originalOrder;
+      state.preview = { paper: row.sourcePaper, questions: [row] };
+      state.importRequest = { envelope: state.preview, ids: [q.id], content: 'question', route: session.route };
+      return { ready: true };
+    });
   }
   function begin(token) { return launch(token, function () { ensure(); if (!state.importRequest) throw new Error('尚未确认导入'); return state.importRequest; }); }
   function panelSession(token) {
@@ -287,7 +323,7 @@
   }
   function feedback(token, value) {
     if (!state.session || token !== state.session.token) return 'stale';
-    if (state.session.panel) { if (value.done) state.busy = false; return 'updated'; }
+    if (state.session.panel || state.session.directTarget) { if (value.done) { state.busy = false; refresh(); } return 'updated'; }
     status(value.message || '');
     if (state.busy && !value.done && value.message) document.getElementById('jfjc-count').textContent = String(value.message).split('：')[0];
     if (value.done) {
@@ -307,15 +343,23 @@
     return 'updated';
   }
   function mount() {
-    if (!document.body || document.getElementById('jfjc-toolbar')) return;
+    if (!document.body) return;
     if (!document.getElementById('jfjc-style')) {
       const style = document.createElement('style'); style.id = 'jfjc-style';
       style.textContent = window.__JFJC_DIALOG_CSS__ || ''; document.head.appendChild(style);
     }
-    const toolbar = document.createElement('div'); toolbar.id = 'jfjc-toolbar'; toolbar.setAttribute('aria-label', 'Jifengjincao Bridge');
-    toolbar.innerHTML = '<button data-scope="selected">选题导入</button>';
-    toolbar.addEventListener('click', function (event) { const button = event.target.closest('[data-scope]'); if (button) native('preview', '', button.dataset.scope); });
-    document.body.appendChild(toolbar);
+    const nav = document.querySelector('.topbar .primary-nav');
+    let toolbar = document.getElementById('jfjc-toolbar');
+    if (nav) {
+      if (!toolbar) {
+        toolbar = document.createElement('div'); toolbar.id = 'jfjc-toolbar'; toolbar.setAttribute('aria-label', 'Jifengjincao Bridge');
+        toolbar.innerHTML = '<button type="button" data-scope="selected">选题导入</button>';
+        toolbar.addEventListener('click', function (event) { const button = event.target.closest('[data-scope]'); refresh(false); if (button && button.isConnected && !button.disabled) native('preview', '', button.dataset.scope); });
+      }
+      // 放在 React 导航组件外侧，菜单重绘时重新挂载，不占用网页底部。
+      if (toolbar.parentNode !== nav.parentNode || toolbar.nextSibling !== nav) nav.parentNode.insertBefore(toolbar, nav);
+    } else if (toolbar) toolbar.remove();
+    if (document.getElementById('jfjc-dialog')) return;
     const dialog = document.createElement('div'); dialog.id = 'jfjc-dialog'; dialog.hidden = true;
     dialog.addEventListener('click', function (event) {
       const button = event.target.closest('[data-action]'); if (!button) return;
@@ -336,23 +380,33 @@
     viewport(); window.addEventListener('resize', viewport);
     if (window.visualViewport) { window.visualViewport.addEventListener('resize', viewport); window.visualViewport.addEventListener('scroll', viewport); }
   }
-  function refresh() {
-    if (window.__JFJC_LAYOUT__) window.__JFJC_LAYOUT__.refresh();
+  function refresh(updateLayout) {
+    if (updateLayout !== false && window.__JFJC_LAYOUT__) window.__JFJC_LAYOUT__.refresh();
     mount(); const current = route();
     if (state.lastRoute && state.lastRoute !== current) { close(); state.session = null; }
     state.lastRoute = current;
-    const toolbar = document.getElementById('jfjc-toolbar'); if (toolbar) toolbar.hidden = !context();
+    const toolbar = document.getElementById('jfjc-toolbar'), ctx = context();
+    if (toolbar) {
+      if (toolbar.hidden) toolbar.hidden = false;
+      const button = toolbar.querySelector('[data-scope]');
+      const available = ctx && (!(ctx.search || ctx.basket) || window.__JFJC_SELECTION__.entries().length > 0);
+      const disabled = Boolean(!available || state.busy);
+      if (button.disabled !== disabled) button.disabled = disabled;
+      const hint = available ? '选择当前页面的题目导入' : '当前页面暂无可导入题目';
+      if (button.title !== hint) { button.title = hint; button.setAttribute('aria-label', '选题导入：' + hint); }
+    }
     focusSource();
   }
   let scheduled = false;
   const observer = new MutationObserver(function () {
     // React 题目异步出现后再定位；已定位的题目不因导入弹窗或后续渲染重复滚动。
-    if (!scheduled) { scheduled = true; window.setTimeout(function () { scheduled = false; if (route() !== state.lastRoute) refresh(); else focusSource(); }, 50); }
+    if (!scheduled) { scheduled = true; window.setTimeout(function () { scheduled = false; refresh(false); }, 50); }
   });
   observer.observe(document.documentElement, { subtree: true, childList: true });
   window.addEventListener('popstate', refresh);
   window.addEventListener('hashchange', function () { state.focusedSource = ''; refresh(); });
   window.__JFJC_PAGE__ = { open: open, begin: begin, prepare: prepare, read: read, chunk: chunk, release: release, cancel: cancel, dismiss: close, feedback: feedback, refresh: refresh, context: context,
-    catalog: catalog, panelPaper: panelPaper, panelCommit: panelCommit };
+    catalog: catalog, panelPaper: panelPaper, panelCommit: panelCommit, direct: direct,
+    validate: function (token) { if (!state.session || state.session.token !== token) return 'rejected'; ensure(); return 'accepted'; } };
   refresh();
 })();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { nativeHost, source } from './helpers.mjs';
+import { nativeHost, source, tick } from './helpers.mjs';
 
 function panel() {
   const h=nativeHost();const classes={};h.context.JSB={defineClass(name,methods){classes[name]=methods;return{new(){return{};}}}};
@@ -29,6 +29,7 @@ function mountedPanel() {
     loadHTMLStringBaseURL(html, base) { this.html = html; this.base = base; }
     evaluateJavaScript(code, callback) {
       this.scripts.push(code);
+      if (code.includes('__JFJC_READINESS__')) return callback(JSON.stringify({ origin: 'https://bbkaoyan.cn', route: '/papers/237', ready: 'complete', content: true }), null);
       callback(code.includes('JSON.stringify(window.__JFJC_PAGE__.context())') ? '{"paperId":237}' : 'injected', null);
     }
   }
@@ -48,6 +49,21 @@ function mountedPanel() {
 test('窗口在手机大小学习窗口内保持可见，保存 frame 只用字符串',()=>{
   const h=panel();const f=h.panel.safeFrame({x:999,y:999,width:920,height:680},{width:390,height:600});
   assert.ok(f.x>=0&&f.y>=0&&f.x+f.width<=390&&f.y+f.height<=600);
+});
+
+test('初始空页面打开面板不会抛出切站错误，网页完成后仍同步定位工具', async () => {
+  const h = panel(), errors = [], calls = [], location = { origin: 'null' }, web = vm.createContext({ window: { location } });
+  const parent = { view: { bounds: { width: 1024, height: 800 }, addSubview(view) { view.superview = this; } }, notebookController: { notebookId: 'book-1' }, refreshAddonCommands() {} };
+  h.context.Application.sharedInstance = () => ({ studyController: () => parent, showHUD() {} });
+  const c = { addon: { window: {} }, view: {}, activePage: 'math', webView: { loading: true,
+    evaluateJavaScript(code, callback) { calls.push(code); try { callback(vm.runInContext(code, web), null); } catch (error) { errors.push(error.message); callback(null, error); } }
+  } };
+  h.panel.show(c); await tick(); assert.deepEqual(errors, []);
+  let configured;
+  location.origin = 'https://bbkaoyan.cn'; c.webView.loading = false;
+  web.window.__JFJC_QUESTION_TOOLS__ = { configure(value) { configured = value.enabled; } };
+  h.panel.show(c); await tick(); assert.equal(configured, true); assert.deepEqual(errors, []);
+  assert.ok(calls.every(code => !code.includes('fetch(')));
 });
 test('未知命令和旧 token 不执行导入，合法取消命令生效',()=>{
   const h=panel(),session={token:'new-token',cancelled:false},controller={session,addon:{window:{}},webView:{evaluateJavaScript(code,cb){cb('cancelled',null);}}};
@@ -90,6 +106,7 @@ test('三个页签按数学、导入、设置排列并居中，窄窗口也不�
 
 test('导入页只在首次点击加载，与数学和设置互斥显示，网站实例和浏览位置保留', () => {
   const h = mountedPanel(), c = h.controller, website = c.webView;
+  assert.equal(website.requests[0].URL.absoluteString, 'https://bbkaoyan.cn/past-papers?subject=math1');
   website.scrollY = 600; assert.equal(c.importWebView, undefined);
   h.methods.openImport(); const local = c.importWebView;
   assert.equal(c.activePage, 'import'); assert.equal(local.html, '<html>导入页面</html>'); assert.equal(local.hidden, false); assert.equal(website.hidden, true); assert.equal(c.settingsPage.hidden, true);
@@ -190,7 +207,7 @@ test('题目工具显示开关默认开启并持久化，两种定位方式可�
   assert.equal(c.cardLocationModeValue.text, '定位并聚焦');
   c.showLocateCardSwitch.on = false; h.methods.toggleShowLocateCard(c.showLocateCardSwitch); await Promise.resolve();
   assert.equal(h.context.__JFJC_SETTINGS__.showLocateCard(), false);
-  assert.ok(c.webView.scripts.some(code => code.includes('configure({enabled:false})')));
+  assert.ok(c.webView.scripts.some(code => code.includes('configure({enabled:false,importEnabled:false})')));
   h.methods.chooseCardLocationMode(); const choice = c.cardLocationModeChoice;
   assert.equal(choice.buttons[0].title, '仅定位'); assert.match(choice.buttons[1].title, /当前/);
   h.methods.selectCardLocationMode(choice.buttons[0]);
@@ -217,12 +234,12 @@ test('设置行宽度间距一致、方式文字箭头居中，窄窗口不重�
     assert.equal(value.y + value.height / 2 - (toggle.y + toggle.height / 2), title.y - c.showLocateCardTitle.frame.y);
     assert.ok(value.x + value.width <= arrow.x && arrow.x + arrow.width <= section.width);
     assert.equal(c.cardLocationModeValue.textAlignment, 2); assert.equal(c.cardLocationModeChevron.textAlignment, 1);
-    for (const item of [c.showLocateCardTitle, c.cardLocationModeTitle, c.importTopicsTitle,
-      c.showLocateCardDescription, c.cardLocationModeDescription, c.importTopicsDescription]) {
+    for (const item of [c.showLocateCardTitle, c.cardLocationModeTitle, c.importTopicsTitle, c.showSingleImportTitle, c.singleImportPositionTitle,
+      c.showLocateCardDescription, c.cardLocationModeDescription, c.importTopicsDescription, c.showSingleImportDescription, c.singleImportPositionDescription]) {
       assert.equal(item.frame.width, desc.width); assert.equal(item.frame.x, desc.x);
     }
     assert.equal(section.width, c.importSettingsSection.frame.width);
-    assert.equal(section.height - c.importSettingsSection.frame.height, title.y - c.showLocateCardTitle.frame.y);
+    assert.equal(section.height - c.importSettingsSection.frame.height, 3 * (title.y - c.showLocateCardTitle.frame.y));
     assert.equal(option.x, 0); assert.equal(option.width, section.width);
     assert.ok(option.y <= title.y && title.y + title.height <= option.y + option.height);
     assert.ok(option.y <= value.y && value.y + value.height <= option.y + option.height);
@@ -232,6 +249,31 @@ test('设置行宽度间距一致、方式文字箭头居中，窄窗口不重�
     assert.ok(sheet.width <= width && sheet.x >= 0);
     h.methods.openMath(); assert.equal(c.cardLocationModeChoice, null);
     h.methods.openSettings();
+  }
+});
+
+test('导入本题设置独立保存，默认子节点，位置选择取消不更改且行宽和居中一致', async () => {
+  const h = mountedPanel(), c = h.controller;
+  assert.equal(c.showSingleImportTitle.text, '显示导入本题'); assert.equal(c.showSingleImportSwitch.on, false);
+  assert.equal(c.singleImportPositionValue.text, '子节点');
+  c.showSingleImportSwitch.on = true; h.methods.toggleShowSingleImport(c.showSingleImportSwitch); await tick();
+  assert.equal(h.context.__JFJC_SETTINGS__.showSingleImport(), true); assert.equal(h.context.__JFJC_SETTINGS__.showLocateCard(), true);
+  h.methods.chooseSingleImportPosition(); const choice = c.cardLocationModeChoice;
+  assert.equal(choice.title.text, '导入本题位置'); assert.deepEqual(Array.from(choice.values), ['child', 'sibling']);
+  h.methods.selectSingleImportPosition(choice.buttons[1]); assert.equal(c.singleImportPositionValue.text, '同级节点');
+  h.methods.chooseSingleImportPosition(); h.methods.selectSingleImportPosition(c.cardLocationModeChoice.buttons[2]);
+  assert.equal(h.context.__JFJC_SETTINGS__.singleImportPosition(), 'sibling');
+  const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
+  assert.equal(reopened.showSingleImportSwitch.on, true); assert.equal(reopened.singleImportPositionValue.text, '同级节点');
+  for (const width of [304, 390, 599, 600, 920]) {
+    reopened.view.frame = { x: 0, y: 0, width, height: 540 }; h.methods.viewDidLayoutSubviews();
+    const option = reopened.singleImportPositionButton.frame, mode = reopened.cardLocationModeButton.frame;
+    assert.equal(option.width, mode.width); assert.equal(option.height, mode.height);
+    const toggle = reopened.showSingleImportSwitch.frame, desc = reopened.showSingleImportDescription.frame;
+    assert.ok(desc.x + desc.width + 12 <= toggle.x || desc.y + desc.height + 2 <= toggle.y);
+    const value = reopened.singleImportPositionValue.frame, arrow = reopened.singleImportPositionChevron.frame;
+    assert.equal(value.y + value.height / 2, arrow.y + arrow.height / 2);
+    assert.ok(option.y + option.height <= reopened.questionToolsSection.frame.height);
   }
 });
 
@@ -245,4 +287,63 @@ test('同题多卡选择显示学习集与路径，只接受本轮按钮，取�
   assert.equal(c.cardLocationChoice, null);
   const cancelled = ui.choose(c, candidates); h.methods.cancelCardLocationChoice();
   await assert.rejects(cancelled, /取消定位/);
+});
+
+test('设置包含题目工具、AI 工具和题卡设置，网页诊断及辅助分组已移除', () => {
+  const h = mountedPanel(), c = h.controller;
+  assert.equal(h.context.__JFJC_WEB_DIAGNOSTICS__, undefined);
+  assert.equal(c.supportSettingsSection, undefined); assert.equal(c.webDiagnosticPanel, undefined);
+  assert.equal(h.methods.toggleWebDiagnostics, undefined);
+  h.methods.openSettings();
+  for (const width of [304, 390, 600, 920]) {
+    c.view.frame = { x: 0, y: 0, width, height: 400 }; h.methods.viewDidLayoutSubviews();
+    const card = c.importSettingsSection.frame;
+    assert.equal(card.width, c.questionToolsSection.frame.width);
+    assert.equal(card.width, c.aiToolsSection.frame.width);
+    assert.ok(card.y + card.height + 18 <= c.settingsPage.contentSize.height);
+  }
+});
+
+test('显示粘贴默认开启，开关独立保存并在重新打开和原生配置回退时恢复', async () => {
+  const h = mountedPanel(), c = h.controller;
+  assert.equal(c.aiToolsTitle.text, 'AI 工具'); assert.equal(c.showPasteTitle.text, '显示粘贴');
+  assert.equal(c.showPasteSwitch.on, true); assert.equal(c.showPasteSwitch.action, 'toggleShowPaste:');
+  c.showPasteSwitch.on = false; h.methods.toggleShowPaste(c.showPasteSwitch); await tick();
+  assert.equal(h.context.__JFJC_SETTINGS__.showPaste(), false);
+  assert.equal(h.context.__JFJC_SETTINGS__.showLocateCard(), true); assert.equal(h.context.__JFJC_SETTINGS__.importTopics(), true);
+  assert.ok(c.webView.scripts.some(code => code.includes('__JFJC_REVIEW__.configure({enabled:false})')));
+  const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
+  assert.equal(reopened.showPasteSwitch.on, false);
+  h.context.MNUtil = undefined;
+  reopened.showPasteSwitch.on = true; h.methods.toggleShowPaste(reopened.showPasteSwitch); await tick();
+  h.context.__JFJC_SETTINGS__.refresh(c); assert.equal(c.showPasteSwitch.on, true);
+  assert.equal(h.context.__JFJC_SETTINGS__.showPaste(), true);
+});
+
+test('AI 工具设置分组等宽、间距一致，窄窗口说明和开关不重叠且可滚动', () => {
+  const h = mountedPanel(), c = h.controller;
+  for (const [width, height] of [[304,320], [390,540], [599,540], [600,540], [920,680]]) {
+    c.view.frame = { x: 0, y: 0, width, height }; h.methods.viewDidLayoutSubviews();
+    const tools = c.questionToolsSection.frame, ai = c.aiToolsSection.frame, card = c.importSettingsSection.frame;
+    assert.equal(ai.width, tools.width); assert.equal(ai.width, card.width); assert.equal(ai.x, card.x);
+    assert.equal(ai.y - (tools.y + tools.height), 18); assert.equal(card.y - (ai.y + ai.height), 18);
+    assert.equal(ai.height, card.height);
+    const text = c.showPasteDescription.frame, toggle = c.showPasteSwitch.frame;
+    assert.ok(text.x + text.width + 12 <= toggle.x || text.y + text.height + 2 <= toggle.y);
+    assert.ok(toggle.x + toggle.width <= ai.width); assert.ok(toggle.y + toggle.height <= ai.height);
+    assert.ok(text.y + text.height <= ai.height);
+    assert.equal(toggle.y, c.importTopicsSwitch.frame.y);
+    assert.ok(card.y + card.height + 18 <= c.settingsPage.contentSize.height);
+  }
+});
+
+test('粘贴开关关闭时忽略旧网页命令，重新开启才允许读取剪贴板', () => {
+  const h = panel(), calls = [], c = { addon: { window: {} }, webView: { evaluateJavaScript(code, cb) { cb('cancelled', null); } } };
+  h.context.__JFJC_CLIPBOARD__.start = async () => calls.push('paste');
+  h.native.savePreference('ai-tools.show-paste', false);
+  assert.equal(h.panel.command(c, 'jifengjincaobridge://paste-record?token=&scope=composer-1'), true);
+  assert.deepEqual(calls, []);
+  h.native.savePreference('ai-tools.show-paste', true);
+  assert.equal(h.panel.command(c, 'jifengjincaobridge://paste-record?token=&scope=composer-1'), true);
+  assert.deepEqual(calls, ['paste']);
 });

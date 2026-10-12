@@ -14,13 +14,11 @@ var __JFJC_IMPORT__ = (function () {
     const answer = note && N.children(note).find(function (child) { return N.has(child, 'ANSWER:' + key); });
     return { note: answer, answer: answer && N.has(answer, 'PART:answer'), explanation: answer && N.has(answer, 'PART:explanation') };
   }
-  function hash(text) { let n = 2166136261; for (let i = 0; i < text.length; i++) n = Math.imul(n ^ text.charCodeAt(i), 16777619); return (n >>> 0).toString(16); }
-  function pathFor(context, paper, entry, created) {
+  function pathFor(context, paper, created) {
     const descriptors = [
       { title: 'Jifengjincao Bridge', marker: 'ROOT:1' },
       { title: __JFJC_ADAPTER__.subjects[paper.subject], marker: 'SUBJECT:' + paper.subject },
-      { title: paper.title, marker: 'PAPER:' + paper.id },
-      { title: entry.section, marker: 'SECTION:' + paper.id + ':' + hash(entry.section), order: entry.sectionOrder }
+      { title: paper.title, marker: 'PAPER:' + paper.id }
     ];
     let parent = null;
     descriptors.forEach(function (d) {
@@ -29,17 +27,7 @@ var __JFJC_IMPORT__ = (function () {
       if (!note) {
         note = N.create(d.title, context); created.push(note);
         N.append(note, __JFJC_FORMAT__.marker(d.marker));
-        if (parent) {
-          let before = null;
-          if (d.order !== undefined) {
-            N.append(note, __JFJC_FORMAT__.marker('SECTIONORDER:' + d.order));
-            before = N.children(parent).find(function (child) {
-              const match = /<!-- JFJC_SECTIONORDER:([-\d.]+) -->/.exec(N.comments(child).join('\n'));
-              return match && Number(match[1]) > d.order;
-            });
-          }
-          N.add(parent, note, before);
-        }
+        if (parent) N.add(parent, note);
       }
       parent = N.raw(note);
     });
@@ -53,16 +41,17 @@ var __JFJC_IMPORT__ = (function () {
     });
     N.add(parent, note, before);
   }
-  function write(context, paper, entry, prepared, existing, withAnswer) {
+  function write(context, paper, entry, prepared, existing, withAnswer, destination) {
     const key = __JFJC_ADAPTER__.key(paper.id, entry.id), created = [];
     let note = existing, added = false, newQuestion = false;
     try {
       if (!note) {
-        const parent = pathFor(context, paper, entry, created);
+        const parent = destination ? destination.parent() : pathFor(context, paper, created);
         note = N.create(__JFJC_FORMAT__.questionTitle(entry, paper), context); created.push(note);
         N.append(note, prepared.question);
         if (prepared.sourceLink) N.append(note, prepared.sourceLink);
-        attach(parent, note, entry); newQuestion = true;
+        if (destination) destination.attach(note); else attach(parent, note, entry);
+        newQuestion = true;
       }
       let status = answerStatus(note, key);
       if (withAnswer && ((!status.answer && prepared.answerPart) || (!status.explanation && prepared.explanationPart))) {
@@ -120,7 +109,7 @@ var __JFJC_IMPORT__ = (function () {
       const includeTopics = typeof session.includeTopics === 'boolean' ? session.includeTopics : __JFJC_SETTINGS__.importTopics();
       session.includeTopics = includeTopics;
       session.content = request.content;
-      N.savePreference('content', request.content);
+      if (!session.destination) N.savePreference('content', request.content);
       record = { id: session.token, notebookId: session.context.notebookId, paperId: model.paper.id,
         title: model.paper.title, ids: request.ids, content: request.content, includeTopics: includeTopics,
         state: 'running', startedAt: new Date().toISOString(), result: result };
@@ -128,9 +117,9 @@ var __JFJC_IMPORT__ = (function () {
       const imported = index(session.context);
       for (const entry of entries) {
         T.guard(controller, session);
-        const key = __JFJC_ADAPTER__.key(model.paper.id, entry.id);
-        let existing = imported[key] && MNUtil.getNoteById(N.noteId(imported[key]));
-        if (existing && !N.has(existing, 'QUESTION:' + key)) existing = null;
+        const paper = entry.paper || model.paper, key = __JFJC_ADAPTER__.key(paper.id, entry.id);
+        let existing = session.destination ? session.destination.find(entry.id) : imported[key] && MNUtil.getNoteById(N.noteId(imported[key]));
+        if (existing && !session.destination && !N.has(existing, 'QUESTION:' + key)) existing = null;
         const status = answerStatus(existing, key);
         if (existing && (!withAnswer || (status.answer && status.explanation))) result.skipped++;
         else {
@@ -138,12 +127,12 @@ var __JFJC_IMPORT__ = (function () {
             await T.feedback(controller, session, '正在准备第 ' + entry.number + ' 题…');
             const media = await T.media(controller, session, entry.id, !existing, withAnswer);
             if (media.questionId !== entry.id) throw new Error('网站返回了其他题目的图片');
-            const prepared = __JFJC_FORMAT__.format(entry, model.paper, media, !existing, withAnswer, includeTopics);
+            const prepared = __JFJC_FORMAT__.format(entry, paper, media, !existing, withAnswer, includeTopics);
             T.guard(controller, session);
-            const fresh = index(session.context)[key];
+            const fresh = session.destination ? session.destination.find(entry.id) : index(session.context)[key];
             if (Boolean(fresh) !== Boolean(existing) || (fresh && N.noteId(fresh) !== N.noteId(existing))) throw new Error('题卡在导入中被修改，请重试本题');
             let outcome;
-            N.undo(session.context, function () { outcome = write(session.context, model.paper, entry, prepared, existing, withAnswer); });
+            N.undo(session.context, function () { outcome = write(session.context, paper, entry, prepared, existing, withAnswer, session.destination); });
             if (!outcome) throw new Error('MN 未能执行卡片写入');
             imported[key] = outcome.note;
             if (outcome.created) result.created++; if (outcome.answerAdded) result.answerAdded++;

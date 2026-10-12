@@ -15,9 +15,13 @@ var __JFJC_ADAPTER__ = (function () {
     if (!paper.title || !SUBJECTS[paper.subject]) throw new Error('试卷名称或科目缺失');
     if (!envelope.questions.length || envelope.questions.length > 500) throw new Error('请选择包含 1 至 500 道题目的试卷');
     const seen = {};
+    const collection = envelope.collection === 'ai-search' || envelope.collection === 'basket';
     const entries = envelope.questions.map(function (row, index) {
       const q = row && row.question;
-      if (!q || !TYPES[q.question_type] || q.subject !== paper.subject) throw new Error('题目类型或科目与试卷不符');
+      const sourcePaper = collection ? row.sourcePaper : source;
+      if (!sourcePaper || !q || !TYPES[q.question_type] || !SUBJECTS[sourcePaper.subject] || q.subject !== sourcePaper.subject) throw new Error('题目类型或科目与试卷不符');
+      const entryPaper = { id: integer(sourcePaper.id, '来源试卷 ID', true), title: text(sourcePaper.title), subject: sourcePaper.subject, year: sourcePaper.year || null };
+      if (!entryPaper.title) throw new Error('来源试卷名称缺失');
       const id = integer(q.id, '题目 ID');
       if (seen[id]) throw new Error('试卷包含重复题目 ID');
       seen[id] = true;
@@ -30,8 +34,9 @@ var __JFJC_ADAPTER__ = (function () {
       if (!stem && !assets.some(function (a) { return a.usage === 'stem'; })) throw new Error('第 ' + (index + 1) + ' 题缺少题干');
       const options = {};
       'ABCD'.split('').forEach(function (key) { options[key] = prefer(q.option_text && q.option_text[key], q.options && q.options[key]); });
-      const order = Number(row.display_order);
-      return { id: id, number: text(String(row.question_number || index + 1)), order: Number.isFinite(order) ? order : index + 1,
+      const originalNumber = Number(row.question_number);
+      const order = collection && Number.isFinite(originalNumber) && originalNumber > 0 ? originalNumber : Number(row.display_order);
+      return { id: id, paper: collection ? entryPaper : undefined, number: text(String(row.question_number || index + 1)), order: Number.isFinite(order) ? order : index + 1,
         section: text(row.section_title) || TYPES[q.question_type], type: q.question_type, stem: stem, options: options,
         answer: prefer(q.correct_answer_latex, q.correct_answer), explanation: prefer(q.explanation_latex, q.answer_explanation),
         assets: assets, source: text(q.source), updatedAt: text(q.updated_at),
@@ -39,9 +44,6 @@ var __JFJC_ADAPTER__ = (function () {
           return [text(t.chapter_name), text(t.topic_name)].filter(Boolean).join(' / ');
         }).filter(Boolean) };
     }).sort(function (a, b) { return a.order - b.order || a.id - b.id; });
-    const sectionOrders = {};
-    entries.forEach(function (entry) { if (sectionOrders[entry.section] === undefined) sectionOrders[entry.section] = entry.order; });
-    entries.forEach(function (entry) { entry.sectionOrder = sectionOrders[entry.section]; });
     return { paper: paper, entries: entries };
   }
   function selection(model, ids) {

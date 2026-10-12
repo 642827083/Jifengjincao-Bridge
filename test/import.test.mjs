@@ -106,10 +106,27 @@ test('MN Utils 静默挂接失败必须判为失败并清理节点',()=>{
   const h=nativeHost(), m=h.adapter.normalize(envelope()), c=h.native.context({window:{}}), e=m.entries[0];h.flags.childFailure=true;
   assert.throws(()=>h.importer.write(c,m.paper,e,prepared(h,e,m.paper),null,true),/挂接/);assert.equal(h.notes.size,0);
 });
-test('先导入解答题再导入选择题，题型分组仍按原卷顺序',()=>{
+test('先导入解答题再导入选择题，题卡直接放在试卷下并按原题号排列',()=>{
   const h=nativeHost(), data=envelope();data.questions[0].section_title='三、解答题';data.questions[0].display_order=22;data.questions[0].question.question_type='solution';
   const m=h.adapter.normalize(data), c=h.native.context({window:{}});
   const first=h.importer.write(c,m.paper,m.entries[1],prepared(h,m.entries[1],m.paper),null,true);
   h.importer.write(c,m.paper,m.entries[0],prepared(h,m.entries[0],m.paper),null,true);
-  assert.deepEqual(first.note.parentNote.parentNote.childNotes.map(n=>n.noteTitle),['一、选择题','三、解答题']);
+  const paperNode = first.note.parentNote;
+  assert.equal(paperNode.noteTitle, m.paper.title);
+  assert.deepEqual(paperNode.childNotes.map(n=>n.noteTitle), ['2026 年数学一真题 · 第 1 题', '2026 年数学一真题 · 第 2 题']);
+  assert.ok([...h.notes.values()].every(n=>!n.comments.some(c=>c.text.includes('JFJC_SECTION:'))));
+});
+
+test('旧题型分组下的题卡继续查重并保留批注，新题直接挂到原试卷', () => {
+  const h = nativeHost(), m = h.adapter.normalize(envelope()), c = h.native.context({ window: {} });
+  const existing = h.importer.write(c, m.paper, m.entries[0], prepared(h, m.entries[0], m.paper), null, true).note;
+  const paper = existing.parentNote, section = h.database.createNoteWithTitleTopicid('一、选择题', 'book-1');
+  h.native.append(section, '<!-- JFJC_SECTION:237:legacy -->'); h.native.add(paper, section); h.native.add(section, existing);
+  existing.comments.push({ text: '我的解题记录' }); existing.strokes = '手写';
+  const indexed = h.importer.index(c), before = h.notes.size;
+  const repeat = h.importer.write(c, m.paper, m.entries[0], prepared(h, m.entries[0], m.paper), indexed['237:5074'], true);
+  assert.equal(repeat.created, false); assert.equal(h.notes.size, before); assert.equal(existing.parentNote, section);
+  assert.equal(existing.comments.at(-1).text, '我的解题记录'); assert.equal(existing.strokes, '手写');
+  const added = h.importer.write(c, m.paper, m.entries[1], prepared(h, m.entries[1], m.paper), null, true).note;
+  assert.equal(added.parentNote, paper); assert.equal(section.childNotes.length, 1);
 });

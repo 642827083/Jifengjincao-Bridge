@@ -4,6 +4,20 @@ import { nativeHost, envelope } from './helpers.mjs';
 
 const oldBody = '题干 $x^2$\n\n![图](marginnote-media://sample)\n\n[查看原题](https://bbkaoyan.cn/papers/237#question-5074)\n\n<!-- JFJC_QUESTION:237:5074 -->';
 
+test('临时 top 域名的受管理旧卡入口升级后在 cn 打开，正文和批注保留', () => {
+  for (const paperId of [0, 237]) {
+    const h = nativeHost(), links = h.context.__JFJC_SOURCE__, note = h.database.createNoteWithTitleTopicid('题卡', 'book-1');
+    const path = paperId ? '/papers/' + paperId + '#question-5074' : '/questions/5074';
+    const identity = '<!-- JFJC_QUESTION:' + paperId + ':5074 -->';
+    note.comments.push({ text: '完整题干\n\n[查看原题](https://bbkaoyan.top' + path + ')\n\n' + identity }, { text: '我的笔记' });
+    assert.equal(links.upgrade({ window: {} }), 1);
+    assert.equal(note.comments[0].text, '完整题干'); assert.equal(note.comments[2].text, '我的笔记');
+    const url = /\[查看原题\]\(([^)]+)\)/.exec(note.comments[1].text)[1];
+    assert.equal(links.parse(url.replace('marginnote4app://addon/', '')).url, 'https://bbkaoyan.cn' + path);
+    assert.ok(note.comments[1].text.includes(identity)); assert.equal(links.upgrade({ window: {} }), 0);
+  }
+});
+
 test('无法确认题干、注释身份冲突或用户改过链接时不搬动评论', () => {
   const h = nativeHost(), links = h.context.__JFJC_SOURCE__;
   const identity = '<!-- JFJC_QUESTION:237:5074 -->', order = '<!-- JFJC_ORDER:1 -->', source = '<!-- JFJC_SOURCE:237:5074 -->';

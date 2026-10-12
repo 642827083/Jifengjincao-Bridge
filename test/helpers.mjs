@@ -18,6 +18,7 @@ export function nativeHost() {
   const notes = new Map(), files = new Map(), prefs = new Map(), snapshots = [], hud = [];
   const notebook = { topicId: 'book-1', title: '我的学习集', notes: [] };
   let current = 'book-1';
+  const notebookController = { get notebookId() { return current; }, focusNote: null };
   const flags = { imageFailure: false, partialImageFailure: false, childFailure: false, saveFailure: false };
   function sync() { notebook.notes = [...notes.values()].filter(n => !n.parentNote); }
   function rawNote(id, title) {
@@ -53,7 +54,7 @@ export function nativeHost() {
   const host = { console, Promise, Date, Math, JSON,
     MNNote: { new: wrapper },
     MNUtil: { getNoteById: id => notes.get(id), undoGrouping(work, topicId) { if (topicId !== 'book-1') throw new Error('撤销学习集错误'); snapshots.push(snapshot()); work(); }, getLocalDataByKey: key => prefs.get(key), setLocalDataByKey: (v,k) => prefs.set(k,v) },
-    Application: { sharedInstance: () => ({ documentPath: '/documents', studyController: () => ({ notebookController: { notebookId: current } }), showHUD: text => hud.push(text) }) },
+    Application: { sharedInstance: () => ({ documentPath: '/documents', studyController: () => ({ notebookController }), showHUD: text => hud.push(text) }) },
     Database: { sharedInstance: () => database },
     NSTimer: { scheduledTimerWithTimeInterval(seconds, repeats, callback) { const id = setTimeout(callback, seconds > 1 ? seconds * 1000 : 0); return { invalidate: () => clearTimeout(id) }; } },
     NSUserDefaults: { standardUserDefaults: () => ({ setObjectForKey: (v,k) => prefs.set(k,v), objectForKey: k => prefs.get(k) }) },
@@ -62,18 +63,19 @@ export function nativeHost() {
     NSJSONSerialization: { JSONObjectWithDataOptions: data => JSON.parse(data.json), dataWithJSONObjectOptions: value => ({ writeToFileAtomically(p, atomic) { if (!atomic || flags.saveFailure) return false; files.set(p, JSON.stringify(value)); return true; } }) }
   };
   const context = vm.createContext(host);
-  for (const name of ['JifengjincaoNative', 'JifengjincaoSettings', 'BBKaoyanAdapter', 'BBKaoyanSourceLink', 'BBKaoyanFormat', 'BBKaoyanImportStore', 'BBKaoyanTransport', 'BBKaoyanClipboard', 'BBKaoyanImport', 'JifengjincaoCardLocatorUI', 'JifengjincaoCardLocator', 'WebBridgeCommands']) vm.runInContext(source('src/' + name + '.js'), context, { filename: name });
+  for (const name of ['JifengjincaoNative', 'JifengjincaoSettings', 'BBKaoyanAdapter', 'BBKaoyanSourceLink', 'BBKaoyanFormat', 'BBKaoyanImportStore', 'BBKaoyanTransport', 'BBKaoyanClipboard', 'BBKaoyanImport', 'JifengjincaoCardLocatorUI', 'JifengjincaoCardLocator', 'JifengjincaoSingleImport', 'WebBridgeCommands']) vm.runInContext(source('src/' + name + '.js'), context, { filename: name });
   function undo() {
     const state = snapshots.pop(); notes.clear();
     state.forEach(s => { const n = rawNote(s.id, s.title); n.comments = s.comments; n.mediaList = s.mediaList; notes.set(s.id,n); });
     state.forEach(s => { if (s.parent) wrapper(notes.get(s.parent)).addChild(notes.get(s.id)); }); sync();
   }
-  return { host, context, notes, files, flags, database, notebook, snapshots, hud, undo, switchNotebook: id => { current = id; },
+  return { host, context, notes, files, flags, database, notebook, notebookController, snapshots, hud, undo, switchNotebook: id => { current = id; },
     native: context.__JFJC_NATIVE__, adapter: context.__JFJC_ADAPTER__, format: context.__JFJC_FORMAT__, importer: context.__JFJC_IMPORT__, store: context.__JFJC_STORE__, transport: context.__JFJC_TRANSPORT__ };
 }
-export function browserHost(data = envelope(), responseFor) {
-  const parsed = parseHTML('<html><head></head><body><article id="question-5074">题目</article></body></html>');
-  const location = { origin: 'https://bbkaoyan.cn', pathname: '/papers/237', search: '', href: 'https://bbkaoyan.cn/papers/237' };
+export function browserHost(data = envelope(), responseFor, origin = 'https://bbkaoyan.cn') {
+  const parsed = parseHTML('<html><head></head><body><header class="topbar"><div class="topbar-actions"><nav class="primary-nav"><div class="primary-nav-group"><button class="primary-nav-trigger">AI 组件</button></div></nav></div></header><article id="question-5074">题目</article></body></html>');
+  Object.defineProperty(parsed.document, 'readyState', { value: 'complete', configurable: true });
+  const location = { origin, pathname: '/papers/237', search: '', href: origin + '/papers/237' };
   const calls = [], errors = [], frames = [];
   const window = { document: parsed.document, location, innerHeight: 800, addEventListener() {} };
   Object.defineProperty(parsed.window.HTMLSelectElement.prototype, 'value', { configurable: true,

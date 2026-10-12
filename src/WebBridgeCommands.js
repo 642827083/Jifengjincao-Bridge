@@ -16,9 +16,9 @@ var __JFJC_WEB_COMMANDS__ = (function () {
     evaluate(controller, 'window.__JFJC_IMPORT_PAGE__&&window.__JFJC_IMPORT_PAGE__.progress(' + JSON.stringify(value) + ')').catch(function () {});
   }
   async function session(controller) {
-    if (controller.webView.loading) throw new Error('数学页面正在加载，请稍候再刷新');
+    await T.waitReady(controller);
     const context = N.context(controller.addon);
-    await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';return "injected";})()');
+    await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showPaste() + '});return "injected";})()');
     const value = { token: 'panel-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), context: context, cancelled: false, running: false, panel: true };
     controller.session = value; return value;
   }

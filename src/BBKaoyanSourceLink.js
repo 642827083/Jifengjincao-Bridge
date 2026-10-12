@@ -42,11 +42,13 @@ var __JFJC_SOURCE__ = (function () {
     const identity = /JFJC_QUESTION:(\d+):(\d+)/.exec(identities[0]), key = identity[1] + ':' + identity[2];
     if (!validId(identity[1], true) || !validId(identity[2], false)) return false;
     const sourceText = '[查看原题](' + link(Number(identity[1]), Number(identity[2])) + ')';
-    const oldURL = Number(identity[1]) ? 'https://bbkaoyan.cn/papers/' + identity[1] + '#question-' + identity[2]
-      : 'https://bbkaoyan.cn/questions/' + identity[2];
-    const oldSource = '[查看原题](' + oldURL + ')';
+    // 兼容临时站点旧卡，确认题目身份后改用当前插件入口。
+    const oldSources = ['https://bbkaoyan.cn', 'https://bbkaoyan.top'].map(function (origin) {
+      const path = Number(identity[1]) ? '/papers/' + identity[1] + '#question-' + identity[2] : '/questions/' + identity[2];
+      return '[查看原题](' + origin + path + ')';
+    });
     function body(text) { return text.replace(managed, '').trim(); }
-    function isLink(text) { return text === sourceText || text === oldSource; }
+    function isLink(text) { return text === sourceText || oldSources.indexOf(text) >= 0; }
     function tagsValid(text) {
       return (text.match(managed) || []).every(function (tag) {
         const order = /^<!-- JFJC_ORDER:([-\d.]+) -->$/.exec(tag);

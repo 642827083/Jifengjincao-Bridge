@@ -1,8 +1,10 @@
 var __JFJC_CLIPBOARD__ = (function () {
-  const N = __JFJC_NATIVE__, T = __JFJC_TRANSPORT__, PREFIX = 'window.__JFJC_REVIEW__', MAX = 10 * 1024 * 1024;
-  function clipboardImage() {
-    if (typeof UIPasteboard === 'undefined' || typeof UIPasteboard.generalPasteboard !== 'function') throw new Error('当前 MN 版本缺少图片剪贴板接口');
-    const image = N.value(UIPasteboard.generalPasteboard(), 'image');
+  const N = __JFJC_NATIVE__, T = __JFJC_TRANSPORT__, PREFIX = 'window.__JFJC_REVIEW__', MAX = 10 * 1024 * 1024, MAX_TEXT = 1024 * 1024;
+  function pasteboard() {
+    if (typeof UIPasteboard === 'undefined' || typeof UIPasteboard.generalPasteboard !== 'function') throw new Error('当前 MN 版本缺少剪贴板接口');
+    return UIPasteboard.generalPasteboard();
+  }
+  function encodeImage(image) {
     if (!image) throw new Error('剪贴板中没有图片，请先复制图片');
     let data = N.value(image, 'pngData'), type = 'image/png';
     if (Number(N.value(data, 'length')) > MAX && typeof image.jpegData === 'function') { data = image.jpegData(0.88); type = 'image/jpeg'; }
@@ -13,26 +15,37 @@ var __JFJC_CLIPBOARD__ = (function () {
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64) || base64.length !== Math.ceil(length / 3) * 4) throw new Error('剪贴板图片转换失败');
     return { base64: base64, type: type };
   }
+  function clipboardImage() { return encodeImage(N.value(pasteboard(), 'image')); }
+  function clipboardContent() {
+    const board = pasteboard(), image = N.value(board, 'image');
+    // 同时包含图片和文本时优先沿用图片附件流程，避免把图片描述粘贴成正文。
+    if (image) return encodeImage(image);
+    const raw = N.value(board, 'string'), text = raw == null ? '' : String(raw);
+    if (!text.length) throw new Error('剪贴板中没有图片或文字，请先复制内容');
+    if (text.length > MAX_TEXT) throw new Error('剪贴板文字过长，请分段粘贴');
+    return { text: text, type: 'text/plain' };
+  }
   function cancel(controller) {
     const operation = controller.clipboardOperation; if (!operation) return;
     controller.clipboardOperation = null;
     T.evaluate(controller, PREFIX + '&&' + PREFIX + '.cancel(' + JSON.stringify(operation.token) + ')').catch(function () {});
   }
   async function start(controller, scope) {
-    if (controller.clipboardOperation) throw new Error('上一张图片仍在添加中，请稍候');
+    if (!__JFJC_SETTINGS__.showPaste()) throw new Error('粘贴已在设置中关闭');
+    if (controller.clipboardOperation) throw new Error('上一次粘贴仍在添加中，请稍候');
     if (!/^composer-[1-9]\d{0,8}$/.test(String(scope))) throw new Error('对话输入框标识无效');
     const operation = { token: 'record-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) };
     controller.clipboardOperation = operation;
     const token = JSON.stringify(operation.token);
-    function guard() { if (controller.clipboardOperation !== operation) throw new Error('图片添加已取消'); }
-    let target;
+    function guard() { if (controller.clipboardOperation !== operation || !__JFJC_SETTINGS__.showPaste()) throw new Error('粘贴已取消'); }
+    let target, type = '';
     async function accepted(code, fallback) {
       guard();
       // 在网页端把布尔结果转换为字符串，避免宿主将 true 桥接为 NSNumber 的 1。
       const result = await T.evaluate(controller, '(function(){return (' + code + ')?"accepted":"rejected";})()'); guard();
       if (String(result) !== 'accepted') {
         const state = JSON.parse(String(await T.evaluate(controller, 'JSON.stringify(' + PREFIX + '.read(' + token + '))'))); guard();
-        const problem = String(await T.evaluate(controller, PREFIX + '.reason(' + JSON.stringify(target) + ')') || ''); guard();
+        const problem = String(await T.evaluate(controller, PREFIX + '.reason(' + JSON.stringify(target) + ',' + JSON.stringify(type) + ')') || ''); guard();
         throw new Error(state.status === 'error' && state.error || problem || fallback);
       }
     }
@@ -41,20 +54,23 @@ var __JFJC_CLIPBOARD__ = (function () {
       guard(); if (!target || target.composer !== String(scope)) throw new Error('请在当前对话打开目标输入框后重试');
       const problem = String(await T.evaluate(controller, PREFIX + '.reason(' + JSON.stringify(target) + ')') || ''); guard();
       if (problem) throw new Error(problem);
-      const image = clipboardImage(), name = '粘贴图片-' + operation.token + (image.type === 'image/png' ? '.png' : '.jpg');
-      await accepted(PREFIX + '.prepare(' + [target, operation.token, image.type, name, image.base64.length].map(JSON.stringify).join(',') + ')', '图片暂时无法接收，请稍候再试');
-      for (let offset = 0; offset < image.base64.length; offset += 65536) {
-        await accepted(PREFIX + '.append(' + token + ',' + offset + ',' + JSON.stringify(image.base64.slice(offset, offset + 65536)) + ')', '图片分块接收失败，请重新粘贴');
+      const content = clipboardContent(); type = content.type;
+      const isText = type === 'text/plain', data = isText ? content.text : content.base64;
+      const name = isText ? '粘贴文字' : '粘贴图片-' + operation.token + (type === 'image/png' ? '.png' : '.jpg');
+      await accepted(PREFIX + '.prepare(' + [target, operation.token, type, name, data.length].map(JSON.stringify).join(',') + ')', '内容暂时无法接收，请稍候再试');
+      for (let offset = 0; offset < data.length; offset += 65536) {
+        await accepted(PREFIX + '.append(' + token + ',' + offset + ',' + JSON.stringify(data.slice(offset, offset + 65536)) + ')', '内容分块接收失败，请重新粘贴');
       }
-      await accepted(PREFIX + '.commit(' + token + ')', '图片未能加入附件，请重新粘贴');
+      await accepted(PREFIX + '.commit(' + token + ')', '内容未能粘贴，请重新粘贴');
       const deadline = Date.now() + 65000;
       while (Date.now() < deadline) {
         guard(); const result = JSON.parse(String(await T.evaluate(controller, 'JSON.stringify(' + PREFIX + '.read(' + token + '))'))); guard();
         if (result.status === 'uploaded') { N.show(controller.addon, '图片已上传到当前对话附件，请点击发送'); return true; }
-        if (result.status === 'error' || result.status === 'cancelled') throw new Error(result.error || '图片上传未完成');
+        if (result.status === 'pasted') { N.show(controller.addon, '文字已粘贴到输入框'); return true; }
+        if (result.status === 'error' || result.status === 'cancelled') throw new Error(result.error || '粘贴未完成');
         await N.delay(0.2);
       }
-      throw new Error('尚未确认图片上传，请检查当前对话附件后再重试');
+      throw new Error(isText ? '尚未确认文字粘贴，请检查输入框' : '尚未确认图片上传，请检查当前对话附件后再重试');
     } finally {
       if (controller.clipboardOperation === operation) { cancel(controller); }
     }

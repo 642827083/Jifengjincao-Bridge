@@ -91,6 +91,7 @@ test('实际页面筛选勾选、原文安全显示、待补答案标记与原�
   const h = connected(url => url.includes('/api/papers?') ? new Response(JSON.stringify(new URL(url).searchParams.get('subject') === 'math1' ? { items: [{ id: 237, subject: 'math1', kind: 'official', year: 2026, title: '测试 <img onerror=evil()>', question_count: 2 }], total: 1 } : { items: [], total: 0 })) : null);
   const page = await localPage(h.send); h.controller.importWebView = { evaluateJavaScript(code, callback) { try { vm.runInNewContext(code, { window: page.window }); callback('ok', null); } catch (e) { callback(null, e); } } };
   try {
+    for (let i = 0; i < 80 && !page.document.querySelector('[data-paper]'); i++) await tick();
     page.document.querySelector('[data-paper]').click(); for (let i = 0; i < 10; i++) await tick();
     assert.equal(page.document.querySelectorAll('[data-question]').length, 2); assert.match(page.document.getElementById('import').textContent, /2/); assert.equal(page.document.querySelector('img'), null);
     page.document.getElementById('select-none').click(); assert.equal(page.document.getElementById('import').disabled, true);
