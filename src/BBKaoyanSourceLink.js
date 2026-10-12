@@ -35,9 +35,49 @@ var __JFJC_SOURCE__ = (function () {
     if (!addon.panelController) addon.panelController = __JFJC_PANEL__.create(addon);
     __JFJC_PANEL__.openSource(addon.panelController, target); return true;
   }
+  function questionLayout(note, addon, context) {
+    const comments = N.comments(note), managed = /<!-- JFJC_(?:QUESTION:\d+:\d+|ORDER:[-\d.]+|SOURCE:\d+:\d+) -->/g;
+    const identities = comments.join('\n').match(/<!-- JFJC_QUESTION:\d+:\d+ -->/g) || [];
+    if (!identities.length || identities.some(function (value) { return value !== identities[0]; })) return false;
+    const identity = /JFJC_QUESTION:(\d+):(\d+)/.exec(identities[0]), key = identity[1] + ':' + identity[2];
+    const sourceText = '[查看原题](' + link(Number(identity[1]), Number(identity[2])) + ')';
+    function body(text) { return text.replace(managed, '').trim(); }
+    let bodyIndex = comments.findIndex(function (text) {
+      return text.indexOf(identities[0]) >= 0 && body(text) && body(text) !== sourceText;
+    });
+    // 兼容上一轮的两评论结构，只认紧邻第二条身份评论的首条正文。
+    if (bodyIndex < 0 && comments[1] && comments[1].indexOf(identities[0]) >= 0
+      && (body(comments[1]) === sourceText || !body(comments[1]))
+      && body(comments[0]) && !/<!-- JFJC_|\[查看原题\]\(/.test(comments[0])) bodyIndex = 0;
+    if (bodyIndex < 0 || /\[查看原题\]\(/.test(comments[bodyIndex])) return false;
+    const extra = comments.map(function (text, index) { return { text: text, index: index }; }).filter(function (item) {
+      if (item.index === bodyIndex) return false;
+      const tags = item.text.match(managed) || [];
+      return tags.length && tags.every(function (tag) {
+        return tag === identities[0] || tag === '<!-- JFJC_SOURCE:' + key + ' -->' || /^<!-- JFJC_ORDER:[-\d.]+ -->$/.test(tag);
+      }) && (tags.indexOf(identities[0]) >= 0 || tags.indexOf('<!-- JFJC_SOURCE:' + key + ' -->') >= 0)
+        && (!body(item.text) || body(item.text) === sourceText);
+    });
+    if (!extra.length) return false;
+    const annotations = comments[bodyIndex].match(managed) || [];
+    extra.forEach(function (item) {
+      (item.text.match(managed) || []).forEach(function (tag) { if (annotations.indexOf(tag) < 0) annotations.push(tag); });
+    });
+    const original = comments[bodyIndex], updated = __JFJC_FORMAT__.repairMath(body(original)) + '\n\n' + annotations.join('\n\n');
+    N.ensureContext(addon, context);
+    N.undo(context, function () {
+      // 先把身份完整存入题干，再删除纯注释或清理链接；失败时仍可识别题卡并重试。
+      if (updated !== original) N.replaceMarkdown(note, bodyIndex, original, updated);
+      extra.reverse().forEach(function (item) { N.replaceMarkdownParts(note, item.index, item.text, body(item.text) ? [sourceText] : []); });
+    });
+    return true;
+  }
   function upgrade(addon) {
-    const context = N.context(addon), work = [], merges = [];
+    const context = N.context(addon), work = [], merges = [], questionNotes = [];
     N.all(context.notebook).forEach(function (note) {
+      const identities = N.comments(note).join('\n').match(/<!-- JFJC_QUESTION:\d+:\d+ -->/g) || [];
+      if (identities.some(function (value) { return value !== identities[0]; })) return;
+      if (N.comments(note).some(function (text) { return /<!-- JFJC_QUESTION:\d+:\d+ -->/.test(text); })) questionNotes.push(note);
       N.comments(note).forEach(function (text, index) {
         const identity = /<!-- JFJC_QUESTION:(\d+):(\d+) -->/.exec(text);
         const source = /<!-- JFJC_SOURCE:(\d+):(\d+) -->/.exec(text);
@@ -55,10 +95,11 @@ var __JFJC_SOURCE__ = (function () {
           const sourceText = '[查看原题](' + link(paperId, questionId) + ')';
           // 仅拆分受管理题干中的独立链接段落，用户评论和自改链接保留。
           const blocks = after.split('\n\n'), position = blocks.indexOf(sourceText);
-          if (identity && position >= 0 && blocks.filter(function (block) { return block === sourceText; }).length === 1) {
+          if (identity && position > 0 && blocks.filter(function (block) { return block === sourceText; }).length === 1) {
             blocks.splice(position, 1);
             const body = blocks.join('\n\n');
-            if (body.replace(/<!--[\s\S]*?-->/g, '').trim()) parts = [body, sourceText + '\n\n<!-- JFJC_SOURCE:' + paperId + ':' + questionId + ' -->'];
+            const sourceMarker = '<!-- JFJC_SOURCE:' + paperId + ':' + questionId + ' -->';
+            if (body.replace(/<!--[\s\S]*?-->/g, '').trim()) parts = [body + (body.indexOf(sourceMarker) < 0 ? '\n\n' + sourceMarker : ''), sourceText];
           }
         }
         if (parts || after !== text) work.push({ note: note, index: index, before: text, parts: parts || [after] });
@@ -75,6 +116,8 @@ var __JFJC_SOURCE__ = (function () {
       N.ensureContext(addon, context);
       N.undo(context, function () { N.replaceMarkdownParts(item.note, item.index, item.before, item.parts); });
     });
+    let relocated = 0;
+    questionNotes.forEach(function (note) { if (questionLayout(note, addon, context)) relocated++; });
     merges.forEach(function (item) {
       N.ensureContext(addon, context);
       N.undo(context, function () {
@@ -90,7 +133,7 @@ var __JFJC_SOURCE__ = (function () {
         });
       });
     });
-    return work.length + merges.length;
+    return work.length + merges.length + relocated;
   }
   return { link: link, parse: parse, register: register, unregister: unregister, receive: receive, upgrade: upgrade };
 })();

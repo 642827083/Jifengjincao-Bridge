@@ -10,9 +10,10 @@ function createJifengjincaoBridgeAddon() {
       __JFJC_SOURCE__.register(self);
       if (!self.panelController) self.panelController = __JFJC_PANEL__.create(self);
       self.panelController.addon = self;
+      __JFJC_CARD_LOCATOR__.resume(self);
       if (__JFJC_NATIVE__.preference('visible', false)) __JFJC_PANEL__.show(self.panelController);
     },
-    notebookWillClose: function () { if (self.panelController) __JFJC_TRANSPORT__.cancel(self.panelController); },
+    notebookWillClose: function () { if (self.panelController) __JFJC_TRANSPORT__.cancel(self.panelController, __JFJC_CARD_LOCATOR__.switching(self)); },
     onSourceLink: function (sender) {
       const addon = self;
       try { __JFJC_SOURCE__.receive(addon, sender); }

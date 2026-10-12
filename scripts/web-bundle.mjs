@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const webSourceNames = ['BBKaoyanLayout.js', 'BBKaoyanPage.js', 'BBKaoyanReview.js'];
+export const webSourceNames = ['BBKaoyanLayout.js', 'BBKaoyanPage.js', 'BBKaoyanReview.js', 'BBKaoyanQuestionTools.js'];
 export function webBundleFiles() {
   const files = new Map();
   files.set('BBKaoyanDialogStyle.js', 'window.__JFJC_DIALOG_CSS__ = ' + JSON.stringify(fs.readFileSync(path.join(root, 'web/src/BBKaoyanDialog.css'), 'utf8')) + ';\n');

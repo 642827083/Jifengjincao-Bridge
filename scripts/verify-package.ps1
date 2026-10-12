@@ -45,13 +45,14 @@ try {
     $pageSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanPage.js') -Raw -Encoding UTF8
     $layoutSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanLayout.js') -Raw -Encoding UTF8
     $reviewSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanReview.js') -Raw -Encoding UTF8
+    $questionToolsSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanQuestionTools.js') -Raw -Encoding UTF8
     $embedded = Read-EntryText 'web-dist/BBKaoyanPageScript.js'
     $embeddedSource = ($embedded -replace '^var __JFJC_PAGE_SCRIPT__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $dialogStyle = Get-Content -LiteralPath (Join-Path $projectRoot 'src/web-dist/BBKaoyanDialogStyle.js') -Raw -Encoding UTF8
     $styleSource = ($dialogStyle -replace '^window\.__JFJC_DIALOG_CSS__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $sourceCss = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanDialog.css') -Raw -Encoding UTF8
     if ($styleSource -cne $sourceCss) { throw 'Dialog style does not match web source' }
-    if ($embeddedSource -cne ($dialogStyle + "`n" + $layoutSource + "`n" + $pageSource + "`n" + $reviewSource)) { throw 'Embedded script does not match web source' }
+    if ($embeddedSource -cne ($dialogStyle + "`n" + $layoutSource + "`n" + $pageSource + "`n" + $reviewSource + "`n" + $questionToolsSource)) { throw 'Embedded script does not match web source' }
     $webResources = @($resourceNames | Where-Object { $_.StartsWith('web-dist/') })
     if ($webResources.Count -ne 2 -or $webResources -notcontains 'web-dist/BBKaoyanPageScript.js' -or $webResources -notcontains 'web-dist/ImportPageResource.js') { throw 'Unexpected web resources in package' }
     $importResource = Read-EntryText 'web-dist/ImportPageResource.js'

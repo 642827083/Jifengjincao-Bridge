@@ -87,9 +87,10 @@ var __JFJC_FORMAT__ = (function () {
       });
       if (optionAssets.length > 4) throw new Error('选项图片数量无法与 A–D 对应');
       if (includeTopics !== false && entry.topics.length) question.push('知识点：' + entry.topics.map(clean).join('；'));
-      if (includeSourceLink !== false) sourceLink = '[查看原题](' + __JFJC_SOURCE__.link(paper.id, entry.id) + ')\n\n' + marker('SOURCE:' + __JFJC_ADAPTER__.key(paper.id, entry.id));
+      if (includeSourceLink !== false) sourceLink = '[查看原题](' + __JFJC_SOURCE__.link(paper.id, entry.id) + ')';
       // 链接开关只控制可见入口，题卡身份和顺序仍用于去重与补答案。
       question.push(marker('QUESTION:' + __JFJC_ADAPTER__.key(paper.id, entry.id)), marker('ORDER:' + entry.order));
+      if (includeSourceLink !== false) question.push(marker('SOURCE:' + __JFJC_ADAPTER__.key(paper.id, entry.id)));
     }
     const answer = [], answerPart = [], explanationPart = [];
     if (includeAnswer && __JFJC_ADAPTER__.hasAnswer(entry)) {

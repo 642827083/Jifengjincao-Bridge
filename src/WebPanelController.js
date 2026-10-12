@@ -31,6 +31,7 @@ var __JFJC_PANEL__ = (function () {
       T.cancel(controller);
       T.evaluate(controller, 'window.__JFJC_PAGE__&&window.__JFJC_PAGE__.dismiss()').catch(function () {});
     }
+    if (page !== controller.activePage) __JFJC_CARD_LOCATOR_UI__.cancelMode(controller);
     controller.activePage = page;
     controller.webView.hidden = page !== 'math';
     if (controller.importWebView) controller.importWebView.hidden = page !== 'import';
@@ -69,6 +70,7 @@ var __JFJC_PANEL__ = (function () {
     controller.webView.frame = content; __JFJC_SETTINGS__.layout(controller, content);
     if (controller.importWebView) controller.importWebView.frame = content;
     controller.resizeHandle.frame = { x: b.width - 26, y: b.height - 26, width: 26, height: 26 };
+    __JFJC_CARD_LOCATOR_UI__.layout(controller);
   }
   function setup(controller) {
     if (controller.webView) return;
@@ -97,7 +99,36 @@ var __JFJC_PANEL__ = (function () {
     layout(controller); load(controller, START_URL);
   }
   function inject(controller) {
-    return T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';return "injected";})()');
+    return T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + '});return "injected";})()');
+  }
+  function syncQuestionTools(controller) {
+    return T.evaluate(controller, 'window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + '})');
+  }
+  async function locateCard(controller, token, target) {
+    if (!__JFJC_SETTINGS__.showLocateCard() || controller.visible === false || controller.activePage && controller.activePage !== 'math') return;
+    if (controller.cardLocationRequest || controller.previewing || controller.panelOperation || controller.clipboardOperation || controller.session && controller.session.running) {
+      N.show(controller.addon, '请先完成当前任务，再定位卡片');
+      T.evaluate(controller, 'window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.finish(' + JSON.stringify(token) + ')').catch(function () {}); return;
+    }
+    const request = { token: token, target: target }; controller.cardLocationRequest = request;
+    async function validate() {
+      if (controller.cardLocationRequest !== request || controller.visible === false || controller.activePage && controller.activePage !== 'math' || !__JFJC_SETTINGS__.showLocateCard()) throw new Error('已取消定位');
+      // 在网页端固定返回文字，避免 true 被宿主桥接成 NSNumber 或字符串 "1"。
+      const valid = await T.evaluate(controller, '(function(){return (window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.matches(' + JSON.stringify(target) + '))?"accepted":"rejected";})()');
+      if (controller.cardLocationRequest !== request) throw new Error('已取消定位');
+      if (String(valid) !== 'accepted') throw new Error('当前网页或题目已切换，请重新点击定位卡片');
+    }
+    let located = false, current = false;
+    try {
+      await validate();
+      await __JFJC_CARD_LOCATOR__.locate(controller.addon, target, validate); located = true;
+    } catch (error) { N.show(controller.addon, String(error.message || error)); }
+    finally {
+      await T.evaluate(controller, 'window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.finish(' + JSON.stringify(token) + ')').catch(function () {});
+      current = controller.cardLocationRequest === request;
+      if (current) controller.cardLocationRequest = null;
+    }
+    if (located && current && controller.visible !== false && (!controller.activePage || controller.activePage === 'math')) { hide(controller); N.show(controller.addon, '已定位脑图卡片'); }
   }
   function load(controller, url) {
     T.cancel(controller);
@@ -109,6 +140,7 @@ var __JFJC_PANEL__ = (function () {
     controller.previewing = true;
     try {
       if (['single', 'selected', 'all'].indexOf(scope) < 0) throw new Error('导入入口无效');
+      if (controller.cardLocationRequest) throw new Error('请先完成当前卡片定位');
       if (controller.session && controller.session.running) throw new Error('请先停止或等待当前导入任务');
       const context = N.context(controller.addon);
       await inject(controller);
@@ -126,19 +158,32 @@ var __JFJC_PANEL__ = (function () {
     const url = N.value(request, 'URL'); return String(N.value(url, 'absoluteString') || '');
   }
   function command(controller, address) {
-    const match = /^jifengjincaobridge:\/\/(preview|import|cancel|paste-record)\?token=([^&]*)&scope=([^&]*)$/.exec(address);
+    const match = /^jifengjincaobridge:\/\/(preview|import|cancel|paste-record|locate-card|cancel-locate)\?token=([^&]*)&scope=([^&]*)$/.exec(address);
     if (!match) return false;
     let token, scope;
     try { token = decodeURIComponent(match[2]); scope = decodeURIComponent(match[3]); } catch (error) { return false; }
+    if (match[1] === 'cancel-locate') {
+      if (scope || !controller.cardLocationRequest || controller.cardLocationRequest.token !== token) return false;
+      __JFJC_CARD_LOCATOR__.cancel(controller.addon); controller.cardLocationRequest = null; return true;
+    }
     if (controller.activePage && controller.activePage !== 'math' && match[1] !== 'cancel') return false;
+    if (match[1] === 'locate-card') {
+      if (!/^jfjc-locate-[a-z0-9-]{1,80}$/.test(token) || scope.length > 2048) return false;
+      let target; try { target = JSON.parse(scope); } catch (error) { return false; }
+      if (!target || !Number.isSafeInteger(target.paperId) || target.paperId < 0 || !Number.isSafeInteger(target.questionId) || target.questionId < 1 || typeof target.route !== 'string' || !target.route.startsWith('/') || target.route.length > 1024) return false;
+      target = { paperId: target.paperId, questionId: target.questionId, route: target.route };
+      locateCard(controller, token, target); return true;
+    }
     if (match[1] === 'paste-record') {
       if (token || !/^composer-[1-9]\d{0,8}$/.test(scope)) return false;
+      if (controller.cardLocationRequest) { N.show(controller.addon, '请先完成当前卡片定位'); return true; }
       __JFJC_CLIPBOARD__.start(controller, scope).catch(function (error) { N.show(controller.addon, String(error.message || error)); }); return true;
     }
     if (match[1] === 'preview') { preview(controller, scope); return true; }
     const session = controller.session;
     if (!session || !token || token !== session.token) return false;
     if (match[1] === 'cancel') { T.cancel(controller); return true; }
+    if (controller.cardLocationRequest) { N.show(controller.addon, '请先完成当前卡片定位'); return true; }
     if (!session.running) { session.cancelled = false; __JFJC_IMPORT__.run(controller, session).catch(function (error) { N.show(controller.addon, error.message || error); }); }
     return true;
   }
@@ -149,6 +194,7 @@ var __JFJC_PANEL__ = (function () {
     controller.view.frame = safeFrame(frame, parent.view.bounds); controller.view.hidden = false; layout(controller);
     if (controller.activePage === 'settings') __JFJC_SETTINGS__.refresh(controller);
     controller.visible = true; N.savePreference('visible', true); parent.refreshAddonCommands();
+    syncQuestionTools(controller).catch(function () {});
     try { __JFJC_SOURCE__.upgrade(controller.addon); }
     catch (error) { N.show(controller.addon, '旧卡片公式或原题链接更新失败：' + String(error.message || error)); }
   }
@@ -170,6 +216,11 @@ var __JFJC_PANEL__ = (function () {
     openSettings: function () { setPage(self, 'settings'); },
     toggleImportTopics: function (sender) { __JFJC_SETTINGS__.toggle(self, sender); },
     toggleImportSourceLink: function (sender) { __JFJC_SETTINGS__.toggleSourceLink(self, sender); },
+    toggleShowLocateCard: function (sender) { __JFJC_SETTINGS__.toggleLocate(self, sender); },
+    chooseCardLocationMode: function () { try { __JFJC_SETTINGS__.chooseMode(self); } catch (error) { N.show(self.addon, String(error.message || error)); } },
+    selectCardLocationMode: function (sender) { __JFJC_CARD_LOCATOR_UI__.selectMode(self, Number(N.value(sender, 'tag')), sender); },
+    selectCardLocationChoice: function (sender) { __JFJC_CARD_LOCATOR_UI__.select(self, Number(N.value(sender, 'tag')), sender); },
+    cancelCardLocationChoice: function () { __JFJC_CARD_LOCATOR_UI__.cancel(self); },
     movePanel: function (recognizer) {
       const controller = self, parent = controller.view.superview; if (!parent) return;
       const translation = recognizer.translationInView(parent), frame = controller.view.frame;
@@ -193,7 +244,7 @@ var __JFJC_PANEL__ = (function () {
       if (/^jifengjincaobridge:/i.test(address)) { command(self, address); return false; }
       // 主页面导航取消当前任务；子资源和桥接 iframe 不改变导入落点。
       const main = N.value(request, 'mainDocumentURL');
-      if ((self.session || self.clipboardOperation) && main && String(N.value(main, 'absoluteString') || '') === address) T.cancel(self);
+      if ((self.session || self.clipboardOperation || self.cardLocationRequest) && main && String(N.value(main, 'absoluteString') || '') === address) T.cancel(self);
       return /^(https?:|about:)/i.test(address);
     },
     webViewDidFinishLoad: function (webView) {
@@ -205,5 +256,5 @@ var __JFJC_PANEL__ = (function () {
     }
   });
   function create(addon) { const controller = panelClass.new(); controller.addon = addon; return controller; }
-  return { create: create, show: show, hide: hide, openSource: openSource, preview: preview, command: command, safeFrame: safeFrame, toolbarFrames: toolbarFrames, setPage: setPage };
+  return { create: create, show: show, hide: hide, openSource: openSource, preview: preview, command: command, safeFrame: safeFrame, toolbarFrames: toolbarFrames, setPage: setPage, syncQuestionTools: syncQuestionTools, locateCard: locateCard };
 })();

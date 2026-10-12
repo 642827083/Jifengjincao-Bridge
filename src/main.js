@@ -7,6 +7,8 @@ JSB.require('BBKaoyanImportStore');
 JSB.require('BBKaoyanTransport');
 JSB.require('BBKaoyanClipboard');
 JSB.require('BBKaoyanImport');
+JSB.require('JifengjincaoCardLocatorUI');
+JSB.require('JifengjincaoCardLocator');
 JSB.require('web-dist/BBKaoyanPageScript');
 JSB.require('web-dist/ImportPageResource');
 JSB.require('WebBridgeCommands');

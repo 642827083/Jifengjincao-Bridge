@@ -52,7 +52,11 @@ var __JFJC_TRANSPORT__ = (function () {
     if (session.panel && typeof __JFJC_WEB_COMMANDS__ !== 'undefined') __JFJC_WEB_COMMANDS__.progress(controller, { message: message, done: Boolean(done) });
     return evaluate(controller, PREFIX + '.feedback(' + JSON.stringify(session.token) + ',' + JSON.stringify({ message: message, done: Boolean(done), retryIds: retryIds || [], details: details || [] }) + ')').catch(function () {});
   }
-  function cancel(controller) {
+  function cancel(controller, keepCardLocation) {
+    if (!keepCardLocation && typeof __JFJC_CARD_LOCATOR__ !== 'undefined') {
+      __JFJC_CARD_LOCATOR__.cancel(controller.addon); controller.cardLocationRequest = null;
+    }
+    if (typeof __JFJC_CARD_LOCATOR_UI__ !== 'undefined') __JFJC_CARD_LOCATOR_UI__.cancelMode(controller);
     if (typeof __JFJC_CLIPBOARD__ !== 'undefined') __JFJC_CLIPBOARD__.cancel(controller);
     if (controller.session) controller.session.cancelled = true;
     return evaluate(controller, PREFIX + '&&' + PREFIX + '.cancel()').catch(function () {});
