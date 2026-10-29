@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const webSourceNames = ['BBKaoyanLayout.js', 'BBKaoyanSelection.js', 'BBKaoyanPage.js', 'BBKaoyanReview.js', 'BBKaoyanQuestionTools.js'];
+export const webSourceNames = ['BBKaoyanHeader.js', 'BBKaoyanLayout.js', 'BBKaoyanSelection.js', 'BBKaoyanPage.js', 'BBKaoyanReview.js', 'BBKaoyanQuestionTools.js'];
 export function webBundleFiles() {
   const files = new Map();
   files.set('BBKaoyanDialogStyle.js', 'window.__JFJC_DIALOG_CSS__ = ' + JSON.stringify(fs.readFileSync(path.join(root, 'web/src/BBKaoyanDialog.css'), 'utf8')) + ';\n');
@@ -17,4 +17,9 @@ export function importPageHTML() {
   return fs.readFileSync(path.join(root, 'web/src/ImportPage.html'), 'utf8')
     .replace('/* 导入样式 */', fs.readFileSync(path.join(root, 'web/src/ImportPage.css'), 'utf8'))
     .replace('/* 导入脚本 */', () => bridge + '\n' + script);
+}
+export function handwritingPageHTML() {
+  const bridge = fs.readFileSync(path.join(root, 'web/src/lib/mnBridge.js'), 'utf8').replace('export default MNBridge;', '');
+  const script = fs.readFileSync(path.join(root, 'web/src/HandwritingPage.js'), 'utf8');
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><p id="status" style="font:14px system-ui;padding:12px">正在读取所选卡片手写…</p><script>' + bridge + '\n' + script + '</script></body></html>';
 }

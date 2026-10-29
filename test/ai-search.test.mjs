@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { browserHost, nativeHost, source, envelope, packet, tick } from './helpers.mjs';
+import { browserHost, nativeHost, source, envelope, packet, tick, reviewPageHTML } from './helpers.mjs';
 
 function question(id, paperId = 251, number = '7', subject = 'math2') {
   return { ...envelope().questions[0].question, id, subject, question_type: 'blank', stem_latex: '求 $x$ 的值。',
@@ -101,13 +101,13 @@ test('AI 混合原卷科目导入沿用题卡结构、离线图片、原卷排�
   assert.ok(cards.some(n => n.noteTitle === '2000 年考研数学二真题 · 第 7 题'));
   assert.ok(cards.some(n => n.noteTitle === '2002 年考研数学一真题 · 第 1 题'));
   const note = cards.find(n => n.comments[1].text.includes('JFJC_QUESTION:251:5395'));
-  assert.match(note.comments[1].text, /JFJC_ORDER:7/); assert.ok(note.mediaList); assert.equal(note.childNotes.length, 1);
+  assert.doesNotMatch(note.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/); assert.ok(note.mediaList); assert.equal(note.childNotes.length, 1);
   assert.equal(note.comments.length, 2); assert.doesNotMatch(note.comments[0].text, /<!--|查看原题/);
   assert.match(note.comments[1].text, /^\[查看原题\]/);
   result = await selected(b, h); assert.equal(result.created, 0); assert.equal(result.skipped, 2);
 });
 
-test('AI 先收集解答题后按原卷追加填空与选择题，全部直接挂在试卷下按原题号排列', () => {
+test('AI 分次收集解答、填空与选择题，后导入的题卡直接追加到试卷末尾', () => {
   const h = nativeHost(), paper = { id: 251, subject: 'math2', title: '2000 年考研数学二真题' };
   function add(id, number, type, ai) {
     const row = { question: { ...question(id), question_type: type }, sourcePaper: paper,
@@ -120,7 +120,7 @@ test('AI 先收集解答题后按原卷追加填空与选择题，全部直接�
   const solution = add(6000, 17, 'solution', true); add(6001, 11, 'blank', false); add(6002, 1, 'choice', false);
   const paperNode = solution.parentNote;
   assert.equal(paperNode.noteTitle, paper.title);
-  assert.deepEqual(paperNode.childNotes.map(n => n.noteTitle), [1, 11, 17].map(n => paper.title + ' · 第 ' + n + ' 题'));
+  assert.deepEqual(paperNode.childNotes.map(n => n.noteTitle), [17, 11, 1].map(n => paper.title + ' · 第 ' + n + ' 题'));
 });
 
 test('题号右侧显示定位题目和导入本题，开关独立，按钮不改变网站选题复选框', () => {
@@ -142,7 +142,7 @@ test('导入本题只建题卡、落到捕获子节点、同父重复跳过，�
   await h.panel.singleImport(h.c, 'jfjc-single-test', target);
   assert.equal(h.c.lastResult.created, 1); assert.equal(h.c.lastResult.failed.length, 0);
   const child = h.parent.childNotes[0]; assert.equal(child.noteTitle, q.papers[0].title + ' · 第 7 题');
-  assert.match(child.comments[1].text, /JFJC_ORDER:7/);
+  assert.match(child.comments[1].text, /JFJC_QUESTION:251:5395/); assert.doesNotMatch(child.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/);
   assert.equal(child.comments.length, 2); assert.equal(child.childNotes.length, 0); assert.equal(h.parent.childNotes.length, 1);
   assert.equal(b.document.getElementById('jfjc-dialog').hidden, true); assert.equal(h.native.preference('content'), 'questionAnswer');
   await h.panel.singleImport(h.c, 'jfjc-single-repeat', target); assert.equal(h.c.lastResult.skipped, 1); assert.equal(h.parent.childNotes.length, 1);
@@ -211,7 +211,7 @@ test('导入本题支持原试卷与复盘入口，选择当前来源卷，保�
     const q = question(5395); q.papers.push({ id: 237, title: '当前模拟卷', question_number: '2' });
     q.assets = [{ id: 369, usage: 'stem', asset_type: 'image', url: '/api/question-assets/369' }];
     const b = search([q]); b.location.pathname = route;
-    b.document.body.innerHTML = route.endsWith('/review') ? '<div class="review-chat-heading">本题对话 题目上下文 #5395</div>' : '<article id="question-5395"><div class="question-card-meta-line">第 02 题</div></article>';
+    b.document.body.innerHTML = route.endsWith('/review') ? reviewPageHTML(5395, 29894) : '<article id="question-5395"><div class="question-card-meta-line">第 02 题</div></article>';
     b.runtime.refresh(); const h = connect(b), target = b.document.querySelector('.jfjc-import-single').__jfjcTarget;
     await h.panel.singleImport(h.c, 'jfjc-single-route', target);
     assert.equal(h.c.lastResult.created, 1); assert.equal(h.parent.childNotes[0].childNotes.length, 0);

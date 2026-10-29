@@ -6,6 +6,7 @@ const MNBridge = (function () {
     if (response.error) request.reject(new Error(response.error.message)); else request.resolve(response.payload);
   };
   function send(command, payload) {
+    if (window.mn && typeof window.mn.call === 'function') return window.mn.call(command, payload || {});
     const requestId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     return new Promise(function (resolve, reject) {
       // 导入任务持续显示进度，等待原生返回最终结果；普通命令提供超时恢复入口。

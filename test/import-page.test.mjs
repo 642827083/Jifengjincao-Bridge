@@ -87,6 +87,54 @@ async function localPage(send) {
   return { document, window, calls, Event: dom.Event, close() { timers.forEach(clearTimeout); } };
 }
 
+test('只读加载也显示停止按钮，离开再返回不会重新读取或接收迟到目录', async () => {
+  let release;
+  const page = await localPage((command) => command === 'loadCatalog' ? new Promise(resolve => { release = resolve; }) : {});
+  try {
+    assert.equal(page.document.getElementById('stop').hidden, false);
+    assert.equal(page.document.getElementById('stop').textContent, '停止读取');
+    page.window.__JFJC_IMPORT_PAGE__.deactivate(); page.window.__JFJC_IMPORT_PAGE__.activate();
+    release({ papers: [{ id: 237, subject: 'math1', year: 2026, title: '迟到的试卷' }] }); await tick(); await tick();
+    assert.equal(page.calls.filter(call => call.command === 'loadCatalog').length, 1);
+    assert.equal(page.document.querySelector('[data-paper]'), null);
+    assert.equal(page.document.getElementById('refresh-catalog').disabled, false);
+  } finally { page.close(); }
+});
+
+test('停止读取后可立即刷新，旧读取迟到不覆盖新目录', async () => {
+  let release, first = true;
+  const page = await localPage(command => {
+    if (command !== 'loadCatalog') return {};
+    if (first) { first = false; return new Promise(resolve => { release = resolve; }); }
+    return { papers: [] };
+  });
+  try {
+    page.document.getElementById('stop').click(); await tick(); await tick();
+    assert.equal(page.calls.at(-1).command, 'cancelImport');
+    assert.equal(page.document.getElementById('refresh-catalog').disabled, false);
+    page.document.getElementById('refresh-catalog').click(); for (let i = 0; i < 5; i++) await tick();
+    const calls = page.calls.length;
+    release({ papers: [{ id: 999, title: '旧目录', subject: 'math1' }] }); await tick(); await tick();
+    assert.equal(page.calls.length, calls); assert.equal(page.document.querySelector('[data-paper]'), null);
+    assert.equal(page.document.getElementById('stop').hidden, true);
+  } finally { page.close(); }
+});
+
+test('返回已选试卷保留题目和勾选，不自动刷新已导入状态', async () => {
+  const h = connected(url => url.includes('/api/papers?') ? new Response(JSON.stringify(new URL(url).searchParams.get('subject') === 'math1' ? { items: [{ id: 237, subject: 'math1', kind: 'official', year: 2026, title: '试卷' }], total: 1 } : { items: [], total: 0 })) : null);
+  const page = await localPage(h.send);
+  try {
+    for (let i = 0; i < 80 && !page.document.querySelector('[data-paper]'); i++) await tick();
+    page.document.querySelector('[data-paper]').click();
+    for (let i = 0; i < 80 && !page.document.querySelector('[data-question]'); i++) await tick();
+    page.document.getElementById('select-none').click();
+    const calls = page.calls.length, title = page.document.getElementById('paper-title').textContent;
+    page.window.__JFJC_IMPORT_PAGE__.deactivate(); page.window.__JFJC_IMPORT_PAGE__.activate(); await tick();
+    assert.equal(page.calls.length, calls); assert.equal(page.document.querySelectorAll('[data-question]').length, 2);
+    assert.equal(page.document.getElementById('paper-title').textContent, title); assert.equal(page.document.getElementById('import').disabled, true);
+  } finally { page.close(); }
+});
+
 test('实际页面筛选勾选、原文安全显示、待补答案标记与原生反馈连成闭环', async () => {
   const h = connected(url => url.includes('/api/papers?') ? new Response(JSON.stringify(new URL(url).searchParams.get('subject') === 'math1' ? { items: [{ id: 237, subject: 'math1', kind: 'official', year: 2026, title: '测试 <img onerror=evil()>', question_count: 2 }], total: 1 } : { items: [], total: 0 })) : null);
   const page = await localPage(h.send); h.controller.importWebView = { evaluateJavaScript(code, callback) { try { vm.runInNewContext(code, { window: page.window }); callback('ok', null); } catch (e) { callback(null, e); } } };

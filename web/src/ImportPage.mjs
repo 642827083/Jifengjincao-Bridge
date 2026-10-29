@@ -6,13 +6,15 @@ import MNBridge from './lib/mnBridge.js';
   const state = { kind: 'official', papers: [], expanded: new Set(), paper: null, entries: [], selected: new Set(), types: new Set(['choice', 'blank', 'solution']), content: 'questionAnswer', busy: false, importing: false, failed: [] };
   const subjects = { math1: '数学一', math2: '数学二', math3: '数学三' };
   const types = { choice: '选择题', blank: '填空题', solution: '解答题' };
+  let active = true, revision = 0;
   function element(tag, text, className) { const node = document.createElement(tag); if (text != null) node.textContent = text; if (className) node.className = className; return node; }
   function imported(entry) { return state.content === 'question' ? entry.imported : entry.complete; }
   function visible() { return state.entries.filter(entry => state.types.has(entry.type)); }
   function error(value) { $('error').hidden = !value; $('error').textContent = value || ''; }
   function lock() {
     document.querySelectorAll('button,input,select').forEach(node => { node.disabled = state.busy; });
-    $('stop').hidden = !state.importing; $('stop').disabled = !state.importing;
+    $('stop').hidden = !state.busy; $('stop').disabled = !state.busy;
+    $('stop').textContent = state.importing ? '停止导入' : '停止读取';
     $('refresh-status').disabled = state.busy || !state.paper;
     $('select-all').disabled = state.busy || !state.paper; $('select-none').disabled = state.busy || !state.paper;
     document.querySelectorAll('[data-question]').forEach(node => { const entry = state.entries.find(row => row.id === Number(node.dataset.question)); node.disabled = state.busy || imported(entry); });
@@ -131,19 +133,24 @@ import MNBridge from './lib/mnBridge.js';
     renderQuestions(); renderPapers();
   }
   async function operation(work, importing) {
-    if (state.busy) return;
+    if (state.busy || !active) return;
+    const request = ++revision;
+    function current() { if (!active || request !== revision) throw new Error('读取已取消'); }
     state.busy = true; state.importing = Boolean(importing); error(''); lock();
-    try { await work(); } catch (e) { error(e.message || String(e)); }
-    finally { state.busy = false; state.importing = false; lock(); }
+    try { await work(current); } catch (e) {
+      if (request === revision) { error(e.message || String(e)); if (!state.papers.length) $('catalog-status').textContent = '读取失败，请刷新重试'; }
+    }
+    finally { if (request === revision) { state.busy = false; state.importing = false; lock(); } }
   }
   async function loadCatalog() {
-    return operation(async () => {
+    return operation(async current => {
       state.paper = null; state.entries = []; state.selected.clear(); state.papers = []; clearResult(); renderQuestions(); renderPapers(); $('target').textContent = '';
       $('catalog-status').textContent = '正在读取试卷…';
       const papers = [];
       // 逐科目读取同源目录，避免并发覆盖网站的分块任务。
       for (const subject of Object.keys(subjects)) {
         const value = await MNBridge.send('loadCatalog', { subject: subject, kind: state.kind });
+        current();
         papers.push(...value.papers.map(paper => ({ ...paper, subject: subject })));
       }
       state.papers = papers;
@@ -153,12 +160,12 @@ import MNBridge from './lib/mnBridge.js';
         if (latest > 0) state.expanded.add('math1/' + latest);
       }
       renderPapers();
-    }).then(() => { if (!state.papers.length && !$('error').hidden) $('catalog-status').textContent = '读取失败，请刷新重试'; });
+    });
   }
   async function loadPaper(id) {
-    return operation(async () => {
+    return operation(async current => {
       state.paper = null; state.entries = []; state.selected.clear(); clearResult(); renderQuestions(); renderPapers(); $('target').textContent = ''; $('empty').textContent = '正在读取题目…';
-      applyStatus(await MNBridge.send('loadPaper', { paperId: id }), true);
+      const value = await MNBridge.send('loadPaper', { paperId: id }); current(); applyStatus(value, true);
     });
   }
   async function runImport(retry) {
@@ -180,14 +187,30 @@ import MNBridge from './lib/mnBridge.js';
   segments('contents', 'data-content', content => { state.content = content; clearResult(); chooseAll(); renderQuestions(); });
   document.querySelectorAll('[data-type]').forEach(input => input.addEventListener('change', () => { if (input.checked) state.types.add(input.dataset.type); else state.types.delete(input.dataset.type); chooseAll(); renderQuestions(); }));
   $('refresh-catalog').addEventListener('click', loadCatalog);
-  $('refresh-status').addEventListener('click', () => operation(async () => applyStatus(await MNBridge.send('refreshImportedStatus'), false)));
+  $('refresh-status').addEventListener('click', () => operation(async current => { const value = await MNBridge.send('refreshImportedStatus'); current(); applyStatus(value, false); }));
   $('select-all').addEventListener('click', () => { chooseAll(); renderQuestions(); }); $('select-none').addEventListener('click', () => { state.selected.clear(); renderQuestions(); });
   $('import').addEventListener('click', () => runImport(false)); $('retry').addEventListener('click', () => runImport(true));
-  $('stop').addEventListener('click', async () => { $('stop').disabled = true; try { await MNBridge.send('cancelImport'); $('progress').textContent = '正在停止导入…'; } catch (e) { error(e.message); $('stop').disabled = false; } });
-  window.__JFJC_IMPORT_PAGE__ = { progress: value => { $('progress').textContent = value.message || ''; }, activate: () => { if (!state.busy && state.paper) operation(async () => applyStatus(await MNBridge.send('refreshImportedStatus'), false)); } };
+  $('stop').addEventListener('click', async () => {
+    const reading = !state.importing, request = reading ? ++revision : revision;
+    $('stop').disabled = true;
+    try { await MNBridge.send('cancelImport'); if (request === revision) { $('progress').textContent = reading ? '读取已停止，可刷新重试' : '正在停止导入…'; if (reading && !state.papers.length) $('catalog-status').textContent = '读取已停止，可刷新重试'; if (reading && !state.paper) $('empty').textContent = '读取已停止，请重新选择试卷或刷新'; } }
+    catch (e) { if (request === revision) { error(e.message); $('stop').disabled = false; } }
+    finally { if (reading && request === revision) { state.busy = false; lock(); } }
+  });
+  window.__JFJC_IMPORT_PAGE__ = {
+    progress: value => { $('progress').textContent = value.message || ''; },
+    activate: () => { active = true; lock(); },
+    deactivate: () => {
+      active = false; revision++;
+      if (state.busy && !state.papers.length) $('catalog-status').textContent = '读取已停止，可刷新重试';
+      if (state.busy && !state.paper) $('empty').textContent = '读取已停止，请重新选择试卷或刷新';
+      state.busy = false; state.importing = false; lock();
+    }
+  };
   async function start() {
-    try { const preferences = await MNBridge.send('getImportPreferences'); state.content = preferences.content === 'question' ? 'question' : 'questionAnswer'; $('contents').querySelectorAll('button').forEach(node => node.setAttribute('aria-pressed', String(node.dataset.content === state.content))); } catch (e) { error(e.message); }
-    loadCatalog();
+    const request = revision;
+    try { const preferences = await MNBridge.send('getImportPreferences'); if (!active || request !== revision) return; state.content = preferences.content === 'question' ? 'question' : 'questionAnswer'; $('contents').querySelectorAll('button').forEach(node => node.setAttribute('aria-pressed', String(node.dataset.content === state.content))); } catch (e) { if (!active || request !== revision) return; error(e.message); }
+    if (active && request === revision) loadCatalog();
   }
   start();
 })();

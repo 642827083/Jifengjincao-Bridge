@@ -111,7 +111,11 @@ var __JFJC_NATIVE__ = (function () {
     const indices = [];
     for (let i = 0; i < count - 1; i++) indices.push(i);
     const inserted = parts.map(function (text, i) { return count - 1 + i; });
-    indices.splice.apply(indices, [index, 0].concat(inserted)); target.sortCommentsByNewIndices(indices);
+    indices.splice.apply(indices, [index, 0].concat(inserted));
+    // 接口接收每个旧索引的新位置，不能直接传入新次序中的旧索引列表。
+    const destinations = [];
+    indices.forEach(function (oldIndex, newIndex) { destinations[oldIndex] = newIndex; });
+    target.sortCommentsByNewIndices(destinations);
     const after = before.slice(); after.splice.apply(after, [index, 1].concat(parts));
     if (comments(note).length !== after.length || after.some(function (text, i) { return comments(note)[i] !== text; })) throw new Error('评论排序未完成，新评论已保存');
   }

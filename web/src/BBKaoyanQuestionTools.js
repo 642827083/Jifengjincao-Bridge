@@ -2,8 +2,31 @@
   if (window.location.origin !== 'https://bbkaoyan.cn') return;
   if (window.__JFJC_QUESTION_TOOLS__) { window.__JFJC_QUESTION_TOOLS__.refresh(); return; }
   let enabled = false, importEnabled = false, pending = null, timer = null, expiry = null, sequence = 0;
+  const reviewSnapshots = new WeakMap(); let reviewSequence = 0;
   function positive(value) { const n = Number(value); return Number.isSafeInteger(n) && n > 0 ? n : 0; }
   function route() { return window.location.pathname + window.location.search; }
+  function reviewTarget(host) {
+    const workspace = host.closest('.review-workspace-grid');
+    if (!workspace) return null;
+    function unavailable() { reviewSnapshots.delete(workspace); return null; }
+    const panes = workspace.querySelectorAll('.review-question-pane'), headings = workspace.querySelectorAll('.review-chat-heading');
+    if (panes.length !== 1 || headings.length !== 1 || headings[0] !== host) return unavailable();
+    const pane = panes[0], cards = pane.querySelectorAll('article.review-question-card');
+    if (cards.length !== 1 || pane.querySelector('.review-missing-state') || [workspace, pane, cards[0]].some(function (node) { return node.getAttribute('aria-busy') === 'true'; })) return unavailable();
+    const card = cards[0], source = card.querySelector('.review-question-source'), context = host.querySelector('small');
+    const item = context && /^题目上下文\s*#([1-9]\d*)$/.exec(context.textContent.trim());
+    const text = source && /^题号[：:]\s*([1-9]\d*)(?:\s|$)/.exec(source.textContent.trim());
+    const aria = source && source.getAttribute('aria-label'), label = aria && /^题号\s+([1-9]\d*)$/.exec(aria.trim());
+    const questionId = positive(label ? label[1] : text && text[1]), itemId = positive(item && item[1]);
+    if (!questionId || !itemId || !text || positive(text[1]) !== questionId || (aria !== null && !label)) return unavailable();
+    // 题库编号用于读题和找卡；复盘记录、左右分栏及题卡实例只用于防止切题后沿用旧请求。
+    let snapshot = reviewSnapshots.get(workspace);
+    if (!snapshot || snapshot.host !== host || snapshot.card !== card || snapshot.questionId !== questionId || snapshot.itemId !== itemId) {
+      snapshot = { host: host, card: card, questionId: questionId, itemId: itemId, key: 'review-' + (++reviewSequence) };
+      reviewSnapshots.set(workspace, snapshot);
+    }
+    return { paperId: 0, questionId: questionId, route: route(), snapshot: snapshot.key };
+  }
   function entries() {
     const path = window.location.pathname, result = [];
     const paper = /^\/papers\/([1-9]\d*)\/?$/.exec(path), detail = /^\/questions\/([1-9]\d*)\/?$/.exec(path);
@@ -19,8 +42,7 @@
       });
     } else if (/^\/assistant\/conversations\/[^/]+\/review\/?$/.test(path)) {
       document.querySelectorAll('.review-chat-heading').forEach(function (host) {
-        const match = /题目上下文\s*#([1-9]\d*)/.exec(host.textContent || '');
-        if (match && positive(match[1])) result.push({ host: host, target: { paperId: 0, questionId: positive(match[1]), route: route() } });
+        result.push({ host: host, target: reviewTarget(host) });
       });
     } else if (window.__JFJC_SELECTION__.searchPage() || window.__JFJC_SELECTION__.basketPage()) {
       window.__JFJC_SELECTION__.entries().forEach(function (entry) {
@@ -69,7 +91,9 @@
       button.__jfjcTarget = entry.target;
       const text = pending && pending.single === single && same(pending.target, entry.target) ? (single ? '导入中…' : '定位中…') : (single ? '导入本题' : entry.label || '定位卡片');
       if (button.textContent !== text) button.textContent = text;
-      if (button.disabled !== Boolean(pending)) button.disabled = Boolean(pending);
+      const disabled = Boolean(pending || !entry.target), hint = entry.target ? '' : '正在读取题目，暂不可用';
+      if (button.disabled !== disabled) button.disabled = disabled;
+      if (button.title !== hint) button.title = hint;
     }
     rows.forEach(function (entry) { render(entry, false); render(entry, true); });
     if (!document.getElementById('jfjc-question-tools-style')) {
@@ -80,7 +104,7 @@
   }
   function configure(options) { enabled = Boolean(options && options.enabled); importEnabled = Boolean(options && options.importEnabled); refresh(); }
   function schedule() { if (timer !== null) return; timer = window.setTimeout(function () { timer = null; refresh(); }, 50); }
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true });
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-label', 'aria-busy'] });
   window.addEventListener('popstate', schedule); window.addEventListener('hashchange', schedule);
   window.__JFJC_QUESTION_TOOLS__ = { configure: configure, refresh: refresh, matches: matches, matchesSingle: matchesSingle, finish: finish, finishSingle: finish };
 })();

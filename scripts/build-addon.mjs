@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { webBundleFiles, importPageHTML } from './web-bundle.mjs';
+import { webBundleFiles, importPageHTML, handwritingPageHTML } from './web-bundle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const release = process.argv.includes('--release');
@@ -27,14 +27,15 @@ for (const [file, content] of webFiles) fs.writeFileSync(path.join(root, 'src/we
 const pageScript = Array.from(webFiles.values()).join('\n');
 fs.writeFileSync(path.join(root, 'src/web-dist/BBKaoyanPageScript.js'), 'var __JFJC_PAGE_SCRIPT__ = ' + JSON.stringify(pageScript) + ';\n');
 fs.writeFileSync(path.join(root, 'src/web-dist/ImportPageResource.js'), 'var __JFJC_IMPORT_HTML__ = ' + JSON.stringify(importPageHTML()) + ';\n');
+fs.writeFileSync(path.join(root, 'src/web-dist/HandwritingPage.html'), handwritingPageHTML());
 const check = spawnSync(process.execPath, ['scripts/check.mjs'], { cwd: root, stdio: 'inherit' });
 if (check.status !== 0) throw new Error('语法检查失败');
 // 网页单文件产物只用于开发核对，安装包仅保留原生入口实际加载的合并脚本。
 const generated = path.join(root, 'src/web-dist');
 fs.cpSync(path.join(root, 'src'), stage, { recursive: true,
-  filter: source => !source.startsWith(generated + path.sep) || ['BBKaoyanPageScript.js', 'ImportPageResource.js'].some(name => source === path.join(generated, name))
+  filter: source => !source.startsWith(generated + path.sep) || ['BBKaoyanPageScript.js', 'ImportPageResource.js', 'HandwritingPage.html'].some(name => source === path.join(generated, name))
 });
-for (const file of ['main.js', 'mnaddon.json', 'icon.png', 'web-dist/BBKaoyanPageScript.js', 'web-dist/ImportPageResource.js']) {
+for (const file of ['main.js', 'mnaddon.json', 'icon.png', 'web-dist/BBKaoyanPageScript.js', 'web-dist/ImportPageResource.js', 'web-dist/HandwritingPage.html']) {
   if (!fs.existsSync(path.join(stage, file))) throw new Error(`缺少安装资源：${file}`);
 }
 const hashes = {};

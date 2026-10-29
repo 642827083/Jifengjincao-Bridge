@@ -44,6 +44,7 @@ try {
     }
     $pageSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanPage.js') -Raw -Encoding UTF8
     $selectionSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanSelection.js') -Raw -Encoding UTF8
+    $headerSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanHeader.js') -Raw -Encoding UTF8
     $layoutSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanLayout.js') -Raw -Encoding UTF8
     $reviewSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanReview.js') -Raw -Encoding UTF8
     $questionToolsSource = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanQuestionTools.js') -Raw -Encoding UTF8
@@ -53,9 +54,14 @@ try {
     $styleSource = ($dialogStyle -replace '^window\.__JFJC_DIALOG_CSS__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $sourceCss = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/BBKaoyanDialog.css') -Raw -Encoding UTF8
     if ($styleSource -cne $sourceCss) { throw 'Dialog style does not match web source' }
-    if ($embeddedSource -cne ($dialogStyle + "`n" + $layoutSource + "`n" + $selectionSource + "`n" + $pageSource + "`n" + $reviewSource + "`n" + $questionToolsSource)) { throw 'Embedded script does not match web source' }
+    if ($embeddedSource -cne ($dialogStyle + "`n" + $headerSource + "`n" + $layoutSource + "`n" + $selectionSource + "`n" + $pageSource + "`n" + $reviewSource + "`n" + $questionToolsSource)) { throw 'Embedded script does not match web source' }
     $webResources = @($resourceNames | Where-Object { $_.StartsWith('web-dist/') })
-    if ($webResources.Count -ne 2 -or $webResources -notcontains 'web-dist/BBKaoyanPageScript.js' -or $webResources -notcontains 'web-dist/ImportPageResource.js') { throw 'Unexpected web resources in package' }
+    if ($webResources.Count -ne 3 -or $webResources -notcontains 'web-dist/BBKaoyanPageScript.js' -or $webResources -notcontains 'web-dist/ImportPageResource.js' -or $webResources -notcontains 'web-dist/HandwritingPage.html') { throw 'Unexpected web resources in package' }
+    $inkHtml = Read-EntryText 'web-dist/HandwritingPage.html'
+    if ($packedMetadata.panel -cne 'web-dist/HandwritingPage.html') { throw 'Official handwriting panel is not declared' }
+    $inkBridge = (Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/lib/mnBridge.js') -Raw -Encoding UTF8).Replace('export default MNBridge;', '')
+    $inkScript = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/HandwritingPage.js') -Raw -Encoding UTF8
+    if ($inkHtml -cne ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><p id="status" style="font:14px system-ui;padding:12px">正在读取所选卡片手写…</p><script>' + $inkBridge + "`n" + $inkScript + '</script></body></html>')) { throw 'Handwriting helper does not match web source' }
     $importResource = Read-EntryText 'web-dist/ImportPageResource.js'
     $importHtml = ($importResource -replace '^var __JFJC_IMPORT_HTML__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $importTemplate = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ImportPage.html') -Raw -Encoding UTF8

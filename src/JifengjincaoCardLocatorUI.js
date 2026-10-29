@@ -9,12 +9,13 @@ var __JFJC_CARD_LOCATOR_UI__ = (function () {
   }
 
   function layout(controller) {
+    const top = controller && controller.titleBar ? controller.titleBar.frame.height : 44;
     const modeChoice = controller && controller.cardLocationModeChoice;
     if (modeChoice) {
       const bounds = controller.view.bounds;
       const width = Math.min(360, Math.max(0, bounds.width - 40));
-      const height = Math.max(0, bounds.height - 36);
-      modeChoice.overlay.frame = { x: 0, y: 36, width: bounds.width, height };
+      const height = Math.max(0, bounds.height - top);
+      modeChoice.overlay.frame = { x: 0, y: top, width: bounds.width, height };
       modeChoice.sheet.frame = { x: (bounds.width - width) / 2, y: Math.max(0, (height - 224) / 2), width, height: 224 };
       modeChoice.title.frame = { x: 16, y: 16, width: Math.max(0, width - 32), height: 30 };
       modeChoice.buttons.forEach(function (row, index) { row.frame = { x: 16, y: 62 + index * 50, width: Math.max(0, width - 32), height: 42 }; });
@@ -23,8 +24,8 @@ var __JFJC_CARD_LOCATOR_UI__ = (function () {
     if (!choice) return;
     const bounds = controller.view.bounds;
     const width = Math.max(0, bounds.width - 24);
-    const height = Math.max(0, bounds.height - 62);
-    choice.view.frame = { x: 12, y: 50, width, height };
+    const height = Math.max(0, bounds.height - top - 26);
+    choice.view.frame = { x: 12, y: top + 14, width, height };
     choice.title.frame = { x: 16, y: 12, width: Math.max(0, width - 112), height: 30 };
     choice.cancel.frame = { x: Math.max(0, width - 80), y: 10, width: 66, height: 34 };
     choice.scroll.frame = { x: 12, y: 56, width: Math.max(0, width - 24), height: Math.max(0, height - 68) };

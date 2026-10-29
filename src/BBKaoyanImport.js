@@ -33,14 +33,6 @@ var __JFJC_IMPORT__ = (function () {
     });
     return N.wrap(parent);
   }
-  function attach(parent, note, entry) {
-    const before = N.children(parent).find(function (child) {
-      const body = N.comments(child).join('\n');
-      const order = /<!-- JFJC_ORDER:([-\d.]+) -->/.exec(body);
-      return /<!-- JFJC_QUESTION:/.test(body) && order && Number(order[1]) > entry.order;
-    });
-    N.add(parent, note, before);
-  }
   function write(context, paper, entry, prepared, existing, withAnswer, destination) {
     const key = __JFJC_ADAPTER__.key(paper.id, entry.id), created = [];
     let note = existing, added = false, newQuestion = false;
@@ -50,7 +42,7 @@ var __JFJC_IMPORT__ = (function () {
         note = N.create(__JFJC_FORMAT__.questionTitle(entry, paper), context); created.push(note);
         N.append(note, prepared.question);
         if (prepared.sourceLink) N.append(note, prepared.sourceLink);
-        if (destination) destination.attach(note); else attach(parent, note, entry);
+        if (destination) destination.attach(note); else N.add(parent, note);
         newQuestion = true;
       }
       let status = answerStatus(note, key);
@@ -136,6 +128,10 @@ var __JFJC_IMPORT__ = (function () {
             if (!outcome) throw new Error('MN 未能执行卡片写入');
             imported[key] = outcome.note;
             if (outcome.created) result.created++; if (outcome.answerAdded) result.answerAdded++;
+            if (outcome.created) {
+              const warning = __JFJC_COMMENT_FOLD__.automatic(outcome.note);
+              if (warning) { warning.number = entry.number; (result.commentFoldWarnings || (result.commentFoldWarnings = [])).push(warning); }
+            }
             if (outcome.missing) result.failed.push({ id: entry.id, number: entry.number, reason: outcome.missing });
             __JFJC_STORE__.mapping(session.context.notebookId, key, outcome.note, entry);
           } catch (error) {
@@ -162,8 +158,9 @@ var __JFJC_IMPORT__ = (function () {
       }
       controller.lastResult = result;
       const ids = result.failed.map(function (f) { return f.id; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
-      const text = reportText(result, entries.length, entries.length) + (result.error ? '。' + result.error : '');
-      await T.feedback(controller, session, text, true, ids, result.failed.map(function (f) { return '第 ' + f.number + ' 题：' + f.reason; }));
+      const warnings = result.commentFoldWarnings || [];
+      const text = reportText(result, entries.length, entries.length) + (result.error ? '。' + result.error : '') + (warnings.length ? '；题卡已保存，原题评论未折叠 ' + warnings.length + ' 张：' + warnings[0].reason : '');
+      await T.feedback(controller, session, text, true, ids, result.failed.map(function (f) { return '第 ' + f.number + ' 题：' + f.reason; }).concat(warnings.map(function (w) { return '第 ' + w.number + ' 题原题评论未折叠：' + w.reason; })));
       N.show(controller.addon, text);
     }
     return result;

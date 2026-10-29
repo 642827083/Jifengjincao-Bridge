@@ -3,7 +3,7 @@ function createJifengjincaoBridgeAddon() {
     sceneWillConnect: function () { self.panelController = __JFJC_PANEL__.create(self); __JFJC_SOURCE__.register(self); console.log('[Jifengjincao Bridge] 插件已初始化'); },
     sceneDidDisconnect: function () {
       __JFJC_SOURCE__.unregister(self);
-      if (self.panelController) { __JFJC_TRANSPORT__.cancel(self.panelController); if (self.panelController.view.superview) self.panelController.view.removeFromSuperview(); }
+      if (self.panelController) { __JFJC_SETTINGS__.cancelFold(self.panelController); __JFJC_TRANSPORT__.cancel(self.panelController); if (self.panelController.view.superview) self.panelController.view.removeFromSuperview(); }
       self.panelController = null;
     },
     notebookWillOpen: function () {
@@ -13,7 +13,7 @@ function createJifengjincaoBridgeAddon() {
       __JFJC_CARD_LOCATOR__.resume(self);
       if (__JFJC_NATIVE__.preference('visible', false)) __JFJC_PANEL__.show(self.panelController);
     },
-    notebookWillClose: function () { if (self.panelController) __JFJC_TRANSPORT__.cancel(self.panelController, __JFJC_CARD_LOCATOR__.switching(self)); },
+    notebookWillClose: function () { if (self.panelController) { __JFJC_SETTINGS__.cancelFold(self.panelController); __JFJC_TRANSPORT__.cancel(self.panelController, __JFJC_CARD_LOCATOR__.switching(self)); } },
     onSourceLink: function (sender) {
       const addon = self;
       try { __JFJC_SOURCE__.receive(addon, sender); }

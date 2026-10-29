@@ -1,10 +1,15 @@
 JSB.require('JifengjincaoNative');
+JSB.require('JifengjincaoNavigationMotion');
+JSB.require('JifengjincaoPanelNavigation');
+JSB.require('JifengjincaoSettingsNavigation');
 JSB.require('JifengjincaoSettings');
 JSB.require('BBKaoyanAdapter');
 JSB.require('BBKaoyanSourceLink');
+JSB.require('JifengjincaoCommentFold');
 JSB.require('BBKaoyanFormat');
 JSB.require('BBKaoyanImportStore');
 JSB.require('BBKaoyanTransport');
+JSB.require('JifengjincaoHandwriting');
 JSB.require('BBKaoyanClipboard');
 JSB.require('BBKaoyanImport');
 JSB.require('JifengjincaoCardLocatorUI');

@@ -87,10 +87,10 @@ var __JFJC_FORMAT__ = (function () {
       });
       if (optionAssets.length > 4) throw new Error('选项图片数量无法与 A–D 对应');
       if (includeTopics !== false && entry.topics.length) question.push('知识点：' + entry.topics.map(clean).join('；'));
-      // 原题入口始终放在第二条评论开头，题卡全部识别注释集中跟在链接后面。
+      // 第二条评论只保留原题入口和题卡身份。
       const key = __JFJC_ADAPTER__.key(paper.id, entry.id);
       sourceLink = ['[查看原题](' + __JFJC_SOURCE__.link(paper.id, entry.id) + ')',
-        marker('QUESTION:' + key), marker('ORDER:' + entry.order), marker('SOURCE:' + key)].join('\n\n');
+        marker('QUESTION:' + key)].join('\n\n');
     }
     const answer = [], answerPart = [], explanationPart = [];
     if (includeAnswer && __JFJC_ADAPTER__.hasAnswer(entry)) {

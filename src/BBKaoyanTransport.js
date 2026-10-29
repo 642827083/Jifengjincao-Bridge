@@ -22,10 +22,11 @@ var __JFJC_TRANSPORT__ = (function () {
   function optional(controller, code) {
     return execute(controller, '(function(){if(window.location.origin!=="https://bbkaoyan.cn")return "waiting";return (' + code + ');})()');
   }
-  async function waitReady(controller) {
+  async function waitReady(controller, validate) {
     const epoch = controller.pageLoadEpoch, deadline = Date.now() + 12000;
     let previous = '';
     function current() {
+      if (validate) validate();
       if (controller.visible === false || controller.pageLoadEpoch !== epoch) throw new Error('网页等待已取消');
     }
     // 仅观察状态；React 根节点有内容并且路由连续两次稳定后，才注入导入脚本。

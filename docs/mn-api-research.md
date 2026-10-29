@@ -1,5 +1,69 @@
 # MarginNote / MN Utils 接口核验
 
+### 2026-10-29：导入只读请求取消与切页
+
+读取最新官方简介及站点导入方案，重新经 mndocs 阅读 JavaScriptCore 运行时和全局入口全文。本次只调整已有 UIWebView.evaluateJavaScript、NSTimer 等待、MNBridge 命令和内存状态，不新增 MarginNote 或 MN Utils 接口，不改变网站同源读取、图片保存、去重及建卡流程。
+
+loadCatalog、loadPaper、状态刷新与偏好读取使用请求身份检查；等待网页就绪时也检查该身份。离开独立导入页可取消这些只读操作，importQuestions 及 running 会话仍须停止后切页。前端通过原有 cancelImport 取消，读取时也展示停止按钮；activate 不再隐式刷新，取消后的迟到结果不应用于当前页面。
+
+### 2026-10-29：官方面板生命周期与读取握手
+
+再次完整阅读官方 [面板之外](https://dev.marginnote.com.cn/zh/jsaddon)、[场景插件基础](https://dev.marginnote.com.cn/zh/plugin-base)、[路径系统](https://dev.marginnote.com.cn/zh/paths)，并经 mndocs 阅读 JavaScriptCore 运行时和全局入口全文。官方示例在 loadPanel 后调用 showFloatingIn(studyController)，清单 panel 指向包内 HTML；hideFloating 会同时清理。旧实现只 loadHTML、立即 post，从未挂载面板，本轮按官方完整流程改正，保留经典插件主窗口及最低版本元数据。手写能力继续在运行时检查，不整体改为 immersiveOnly。
+
+媒体页面启动后通过既有 MNBridge.send('receiveHandwriting', {phase:'ready'}) 主动握手，原生以请求归属面板和当前卡片快照验证，再返回本次 token、noteId、评论序号。图片本身仍通过官方 parts/content 端点获取；新增阶段回传只使用同一命令，长图片保持 65536 字符分块。上传不再限定复盘上下文编号和页面路由，目标仍以实际输入框、当前路由、复盘题目编号（若有）和上传配置版本防止串用。
+
+重用既有令牌检查用户重新确认的 .100 地址，READ_READY 通过；当前 capabilities 不提供可调用的插件 JS 执行或插件日志接口，因此挂载与握手的修正由模拟宿主验证，设备内部链路仍待安装验收。没有改电脑已保存的连接配置，也未扫描其他地址。
+
+### 2026-10-29：官方独立手写 PNG 实测与替换
+
+读取新版官方 [JSAddon 开发](https://dev.marginnote.com.cn/zh/jsaddon)、[批量获取卡片](https://dev.marginnote.com.cn/api-reference/卡片与摘录/批量获取卡片)、[获取卡片媒体文件](https://dev.marginnote.com.cn/api-reference/卡片与摘录/获取卡片媒体文件)，并复核整卡渲染与手写会话预览。整卡渲染会混入题干，手写会话预览针对练习会话，不适合作为任意已有卡片批注的读取入口。
+
+使用用户确认的设备连接及既有令牌完成只读实测，状态、当前 guide 与 capabilities 均核验。设备返回 appVersion 4.5.0、bridgeApiVersion 0.92。选中卡片的 POST /notes/batch-get 返回两项 kind=ink、index=3/4、contentId=sub-3-image/sub-4-image、renderable=true；另有 source=mindmap 的笔迹，必须排除。分别 GET /notes/{noteId}/content/{contentId}?maxEdge=2048，结果如下：
+
+| 批注 | HTTP / MIME | PNG 尺寸 | 字节数 |
+| --- | --- | --- | --- |
+| 上一条手写 | 200 / image/png | 1024×608 | 208692 |
+| 最后一条手写 | 200 / image/png | 1024×787 | 135995 |
+
+最后一条 PNG SHA256 为 2c57bc71e373123e6c8cc164064519b79bd5d1eb7174e434081f313b5f997ab6。透明底下只有该条手写，白底浏览器预览已核对，没有题干或查看原题。layers=base 在此样本返回相同内容；不把该参数误当作“只取手写”的筛选条件。
+
+插件改用官方 AddonWebPanel.loadHTML / post / onMessage，在面板内以 mn.api 读取分项、同源 fetch 读取 PNG，再通过 MNBridge 的 mn.call 通道和 WebBridgeCommands 分块回传。保留原生单选、学习集、评论索引与 drawing 引用快照保护，但不再读取或解析 drawing 媒体；删除 Ink to Card 的 wrd 解析及 SVG 近似渲染。canvas 只在官方 PNG 原尺寸补白底。媒体读取不再调用 MN Utils；项目其他功能原有依赖不在本次改变范围内。包内不保存设备地址或外部 API 令牌。
+
+来源变化、缺块、错误 MIME、超限、取消、30 秒超时均停止并释放面板。网页上传配置带递增版本，避免官方异步读取期间切换来源再切回后复用旧目标。官方 HTTP 端点和 PNG 已在设备实测；AddonWebPanel 与现有经典插件窗口的组合尚需安装测试包确认。
+
+### 2026-10-29：评论排序参数方向
+
+重读运行时、全局对象及 mndocs 的 MbBookNote 全文；最新官方索引可通过 HTTP 读取，旧 MbBookNote 文档仅说明按新索引排序，未解释映射方向。复核本地大观园 CardComments.sort 及配套宿主用例，使用 oldIndex → newIndex 映射。以该语义回放本项目实际修复链，稳定得到用户报告的“新链接、旧链接、题干”；只转换参数方向后恢复正确顺序且删除旧链接。同步纠正本项目测试宿主，避免继续用错误模拟验证自身。该回放不替代用户设备的最终验收。
+
+### 2026-10-29：手动修复题卡格式
+
+复核最新官方入口（本次无法访问）、JavaScriptCore 运行时和全局对象；UIButton、UILabel、MbBookNote 接口沿用此前已读取的文档。最终实现只把原修复函数从面板显示入口移到设置按钮的 TouchUpInside selector，复用既有评论、撤销与提示接口，不新增宿主 API、网页命令、统计确认流程或持久化数据。
+
+### 2026-10-29：精简原题评论与补导追加
+
+访问最新官方入口未成功，按规范通过 mndocs 读取 MbBookNote 全文，并重新阅读 JavaScriptCore 运行时及全局入口文档。此次不新增宿主接口，普通补导复用现有 addChild 挂接；单题指定同级位置保留原 insertChildBefore 流程。评论整理复用既有追加、删除、排序和撤销封装；折叠沿用先前核验的 commentState / setCommentsCollapsed 及版本、持久化检查，只调整新旧身份识别。网站读取与原生持久化结构不变，不新增顺序存储。
+
+### 2026-10-21：统一上传入口与来源设置
+
+先访问新版官方入口（本次工具无法访问），按规范通过 mndocs 读取 UIButton 与 NSUserDefaults 全文，并重新阅读 JavaScriptCore 运行时与全局入口。上传来源复用现有原生二选一弹层、按钮 TouchUpInside（1 << 6）与偏好封装；没有新增宿主 API。MN Utils 在线入口本次无法访问，继续沿用已核验的原生偏好封装和缺失时的 NSUserDefaults 回退。
+
+新增插件前缀偏好 `ai-tools.upload-source`，仅存储 `clipboard` / `handwriting`，默认剪贴板。显示上传沿用旧 `ai-tools.show-paste` 偏好以保留已有状态。原生注入与切页同步来源，统一短命令 `upload-content` 只携带输入框标识，具体来源由原生配置决定。切换来源或关闭上传取消未提交操作；跨窗口配置改变由原生守卫再次校验。手写继续只用于复盘本题对话，使用现有单选卡片、最后一条 drawing、分块、绘图和网站附件流程。窗口默认宽度从 920 调整为 980，高度 680 与边界限制沿用已有 frame 逻辑。
+
+
+### 2026-10-19：单选卡片最后一条手写上传（历史方案，已由官方媒体接口替代）
+
+重新访问最新官方入口并复核“获取卡片渲染图”文档；该文档属于场景面板 `/bridge/v1`，现有经典 UIWebView 未建立该调用环境，不直接套用 `fetch`。重新阅读 JavaScriptCore 运行时、全局入口及 mndocs 的 MindMapNode、NotebookController；`mindmapView.selViewLst` 可用时只接受一个节点并读取 `.note`，没有选中列表接口时才使用既有 `focusNote`，不在多选或空选时退回旧焦点。
+
+读取参考本地 `Ink-To-Card/src/InkToCardNative.js` 与 `InkToCardDrawing.js` 的真机实现：倒序查找 `type=PaintNote` 且非空 `drawing` 的最后一项，固定评论索引和媒体引用；`drawing` 属于该项目实际设备返回字段，不宣称为公开稳定 API。媒体优先使用此前核验的 `MNUtil.getMediaByHash`，缺少封装时使用官方 `Database.getMediaByHash`，均检查接口与结果。wrd 解析器保留普通笔、通道、变换和未知字段白名单；近似 SVG 在网页转白底 PNG，生成后经原生再次核对卡片和来源才派发网站原有 paste 上传，不增加发送接口，不修改卡片或剪贴板。
+
+网站当前公开部署包 `https://bbkaoyan.cn/assets/index-90VJyEfF.js` 仍使用共用 composer 的文件粘贴、附件校验、`assistant-attachment-item is-${status}` 与 uploaded/failed 状态。桥接命令 `upload-handwriting` 只带输入框标识，长内容沿用 65536 字符分块。窗口关闭、网页导航、输入框替换、切题、切学习集、切卡或最后一条来源变化时停止；普通图片 `paint` 不冒充手写，不回退较早笔迹。
+
+### 2026-10-17：原题评论折叠
+
+网页读取工具无法访问最新官方站，改用 HTTP 读取官方 `llms.txt` 索引与[折叠或展开卡片批注](https://dev.marginnote.com.cn/api-reference/卡片与摘录/折叠或展开卡片批注.md)全文：读取时保存顶层 revision，写入时携带同一版本；目标使用 ownerNoteId / commentId 或读取返回的 1 起始 index，旧评论身份可为空；只有 persisted 为 true 才确认保存。该接口修改评论状态，不修改脑图分支折叠状态。
+
+原生调用沿用本地大观园 `DaguanyuanCommentFold.js` 的 `commentState()` / `setCommentsCollapsed(targets, collapsed, revision)` 示例；新站本页描述的是网页 HTTP 接口，未据此宣称 JSB 方法已在本项目真机验证。运行前检查方法存在，缺少接口时提示更新 MN。重新阅读运行时、全局对象及 mndocs 的 MbBookNote 全文，旧文档未列出这两个方法。折叠独立在建卡撤销分组保存之后调用，冲突不强写，折叠失败作为单独警告，保留题卡、媒体及导入映射；批量范围固定当前学习集，切换学习集、页面或关闭面板时停止。
+
 ### 2026-10-13：导航入口与题篮工具
 
 本轮同时移除网页诊断的原生界面、探针、轮询及安装包资源，保留加载就绪检查与普通错误处理；批量建卡路径取消题型层，复用原有 addChild / insertChildBefore 和全学习集身份扫描。没有新增 MN 接口，不迁移已有题型分组或用户批注。
@@ -151,3 +215,30 @@ MN Utils 的公开 API 文档确认复制图片的封装，但未发现适用的
 再次访问新版文档站点（工具无法访问），通过 mndocs 读取 [UISwitch](https://mn-docs.museday.top/reference/uikit/uiswitch/) 与 [NSUserDefaults](https://mn-docs.museday.top/reference/foundation/ns-user-defaults/) 全文，并复核原生运行时及全局入口。开关沿用 `new UISwitch(frame)`、`on` 属性与 `1 << 12` 的 ValueChanged 事件，配置复用项目原生偏好封装，插件前缀 key 为 `ai-tools.show-paste`，未保存时默认开启。
 
 网页不保存此业务开关，由原生在注入、打开面板、返回数学页及操作开关时同步。关闭后移除按钮并取消尚未提交的接收；原生命令和剪贴板入口同样检查开关，旧网页命令不会继续读取剪贴板。保留网站原有输入、上传及系统粘贴行为，不更改用户已有草稿或附件。
+
+### 2026-10-15：复盘题库编号与对话上下文区分
+
+检查网站当前公开部署脚本 `/assets/index-DwkznktV.js`：复盘右栏“题目上下文”显示 `current_review_item_id`，左栏 `.review-question-card .review-question-source` 的文本及 `aria-label` 显示 `question.id`，二者不能混用。截图样例中 `/api/questions/5684` 返回 200，原卷为 263、第 23 题；上下文编号 29894 对应的 `/api/questions/29894` 返回 404。
+
+定位与单题导入统一从同一复盘工作区左侧读取题库编号，校对可见题号与辅助标签；右侧上下文、题卡实例和所属工作区只参与快照校验。缺少题卡、上下文未知、加载或题号冲突时不产生可执行目标。网页短命令携带 `review-<序号>` 快照，原生保留该快照，沿用既有网页校验、同源取题、分块传输及定位 API。未新增 MN 数据库接口，也不访问 React 私有状态。
+
+修改前访问新版官方入口 `https://dev.marginnote.com.cn/zh/introduction`（本次工具无法访问），重新阅读 JavaScriptCore 运行时与全局入口文档；原生改动仅扩展既有短命令快照前缀白名单，不改变宿主 API 调用。
+
+### 2026-10-18：顶部导航与设置分类的原生接口
+
+先访问[新版官方入口](https://dev.marginnote.com.cn/zh/introduction)，本次工具无法访问，按项目规范回退到 mndocs。重新阅读[JavaScriptCore 运行时](https://mn-docs.museday.top/reference/js-runtime/)与[全局入口](https://mn-docs.museday.top/reference/global/global-variables/)，并核对以下接口：
+
+- [UITapGestureRecognizer](https://mn-docs.museday.top/reference/uikit/uitap-gesture-recognizer/) 的 `numberOfTapsRequired` 用于双击；[UIGestureRecognizer](https://mn-docs.museday.top/reference/uikit/uigesture-recognizer/) 的 `requireGestureRecognizerToFail` 令双击等待拖动失败。手势仅绑定标题栏空白区域；创建双击前检查类是否存在。
+- [UIScrollView](https://mn-docs.museday.top/reference/uikit/uiscrollview/) 的 `contentOffset`、`contentSize` 配合独立固定导航区域，保存各设置分类的面板内滚动状态，并在切换或缩放后夹紧偏移。不新增业务持久化数据。
+- [CALayer](https://mn-docs.museday.top/reference/quartzcore/calayer/) 的 `presentationLayer`、`addAnimationForKey` 和 `removeAnimationForKey` 用于连续切换及按键清理动画；[CABasicAnimation](https://mn-docs.museday.top/reference/quartzcore/cabasic-animation/) 沿用父类 [CAPropertyAnimation](https://mn-docs.museday.top/reference/quartzcore/caproperty-animation/) 的 `animationWithKeyPath`、`fromValue`、`toValue` 和 `timingFunction`。
+- [CAMediaTimingFunction](https://mn-docs.museday.top/reference/quartzcore/camedia-timing-function/) 的 `functionWithControlPoints` 与 [CATransaction](https://mn-docs.museday.top/reference/quartzcore/catransaction/) 的事务及动画时长接口，沿用大观园的缓出曲线。相关类和方法逐项检查，缺失或动画调用失败时直接显示最终布局。
+
+这些原生 UI 接口能够满足本次需求，无需新增 MN Utils 封装或依赖。自动化检查与浏览器布局预览不代表已完成 MarginNote 真机验证。
+
+### 2026-10-21：参考大观园放开窗口拖动边界
+
+访问新版官方入口失败后，通过 mndocs 读取 UIView 和 UIPanGestureRecognizer 全文，重新阅读 JavaScriptCore 运行时与全局入口。UIView.frame 和手势 translationInView / setTranslationInView 足够实现本次调整，无需增加 MN Utils 封装或宿主 API。参考大观园 WebPanelController 的移动与缩放策略：移动直接累加坐标，缩放仅从安全尺寸计算中取宽高，保留原左上角。当前插件继续使用已有 frame 接口，而非引入新的视图属性；结束手势时仍通过已有原生偏好封装保存 JSON 字符串。打开及双击重置继续校验位置和尺寸，默认 980 × 680。
+
+### 2026-10-22：网站紧凑顶部导航
+
+核对网站当前部署脚本 `/assets/index-Cr7Ih_Sw.js` 与样式 `/assets/index-GWKYkdQh.css`：顶部包含 brand、topbar-search-slot、topbar-notices、topbar-actions；原搜索由 React 管理，通知轮播包含售后群和首页赞助信息。本次只在 Web 源码新增 BBKaoyanHeader，沿用原搜索节点、提交事件和导航菜单，不新增搜索 API 或 MN 原生接口。只按明确群信息标记隐藏通知，保留赞助信息；监听页面异步插入与 React 重建恢复按钮，属性仅在变化时写入以避免重复观察循环。

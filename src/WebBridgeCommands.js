@@ -15,10 +15,23 @@ var __JFJC_WEB_COMMANDS__ = (function () {
   function progress(controller, value) {
     evaluate(controller, 'window.__JFJC_IMPORT_PAGE__&&window.__JFJC_IMPORT_PAGE__.progress(' + JSON.stringify(value) + ')').catch(function () {});
   }
+  function check(controller, request) {
+    if (!request || request.cancelled || controller.panelRequest !== request || controller.activePage !== 'import' || controller.visible === false) throw new Error('导入页面读取已取消');
+  }
+  function cancelRead(controller) {
+    if (controller.panelOperation === 'importQuestions' || controller.session && controller.session.running) return false;
+    if (controller.panelRequest) controller.panelRequest.cancelled = true;
+    controller.panelRequest = null; controller.panelOperation = null;
+    T.cancel(controller);
+    return true;
+  }
   async function session(controller) {
-    await T.waitReady(controller);
+    const request = controller.panelRequest;
+    check(controller, request);
+    await T.waitReady(controller, function () { check(controller, request); }); check(controller, request);
     const context = N.context(controller.addon);
-    await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showPaste() + '});return "injected";})()');
+    await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + '});return "injected";})()');
+    check(controller, request);
     const value = { token: 'panel-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), context: context, cancelled: false, running: false, panel: true };
     controller.session = value; return value;
   }
@@ -39,10 +52,12 @@ var __JFJC_WEB_COMMANDS__ = (function () {
       return T.take(controller, s, 'window.__JFJC_PAGE__.catalog(' + [JSON.stringify(s.token), JSON.stringify(payload.subject), JSON.stringify(payload.kind)].join(',') + ')');
     },
     loadPaper: async function (controller, payload) {
+      const request = controller.panelRequest;
       const id = __JFJC_ADAPTER__.integer(payload && payload.paperId, '试卷 ID');
       controller.panelModel = null;
       const s = await session(controller);
       const data = await T.take(controller, s, 'window.__JFJC_PAGE__.panelPaper(' + JSON.stringify(s.token) + ',' + id + ')');
+      check(controller, request);
       const model = __JFJC_ADAPTER__.normalize(data);
       if (model.paper.id !== id) throw new Error('网站返回的试卷与选择不符');
       const result = status(controller, model);
@@ -69,16 +84,17 @@ var __JFJC_WEB_COMMANDS__ = (function () {
       try { snapshot = status(controller, controller.panelModel); } catch (error) { result.error = result.error || String(error.message || error); }
       return { result: result, status: snapshot };
     },
-    cancelImport: function (controller) { T.cancel(controller); return { cancelled: true }; }
+    cancelImport: function (controller) { if (!cancelRead(controller)) T.cancel(controller); return { cancelled: true }; }
   };
   async function dispatch(controller, command, payload) {
     if (controller.activePage !== 'import') throw new Error('请先打开导入页面');
     if (!Object.prototype.hasOwnProperty.call(commands, command)) throw new Error('未知导入命令');
     if (command === 'cancelImport') return commands[command](controller, payload);
     if (controller.panelOperation || controller.previewing || controller.session && controller.session.running) throw new Error('请等待当前操作结束');
-    controller.panelOperation = command;
-    try { return await commands[command](controller, payload); }
-    finally { controller.panelOperation = null; }
+    const request = { command: command, cancelled: false };
+    controller.panelRequest = request; controller.panelOperation = command;
+    try { const result = await commands[command](controller, payload); check(controller, request); return result; }
+    finally { if (controller.panelRequest === request) { controller.panelRequest = null; controller.panelOperation = null; } }
   }
   function handle(controller, address) {
     const match = /^mnaddon:\/\/bridge\?payload=([^&]+)$/.exec(address);
@@ -92,5 +108,6 @@ var __JFJC_WEB_COMMANDS__ = (function () {
     function reply(value) { evaluate(controller, 'window.__JFJC_BRIDGE_RECEIVE__(' + JSON.stringify(value) + ')').catch(function () {}); }
     return true;
   }
-  return { handle: handle, dispatch: dispatch, progress: progress };
+  function receiveHandwriting(controller, payload, panel) { return __JFJC_HANDWRITING__.receive(controller, payload, panel); }
+  return { handle: handle, dispatch: dispatch, progress: progress, receiveHandwriting: receiveHandwriting, cancelRead: cancelRead };
 })();

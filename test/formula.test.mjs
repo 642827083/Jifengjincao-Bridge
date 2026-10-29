@@ -42,13 +42,13 @@ test('旧题干与答案只修复公式边界，保留媒体、评论、手写�
   const answer = h.database.createNoteWithTitleTopicid('答案与解析', 'book-1');
   h.native.wrap(note).addChild(answer);
   answer.comments.push({ text: '$ x $\n\n<!-- JFJC_PART:explanation -->\n\n<!-- JFJC_ANSWER:265:5711 -->' });
-  assert.equal(h.context.__JFJC_SOURCE__.upgrade(addon), 2);
+  assert.equal(h.repair(addon), 2);
   assert.ok(note.comments[0].text.includes(String.raw`$\frac{\sqrt{10}}{50}$`));
   assert.ok(note.comments[0].text.includes('marginnote-media://saved'));
   assert.equal(note.comments[2].text, '我的笔记 $ 保持原样 $');
   assert.doesNotMatch(note.comments[0].text, /<!-- JFJC_/); assert.match(note.comments[1].text, /^\[查看原题\]/);
   assert.equal(note.strokes, '手写'); assert.equal(note.mediaList, 'saved');
   assert.ok(answer.comments[0].text.startsWith('$x$'));
-  assert.equal(h.context.__JFJC_SOURCE__.upgrade(addon), 0);
+  assert.equal(h.repair(addon), 0);
   h.undo(); h.undo(); assert.equal(h.notes.get(note.noteId).comments[0].text, original);
 });

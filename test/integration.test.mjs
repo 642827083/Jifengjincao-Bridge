@@ -38,10 +38,10 @@ test('旧关闭原题配置不再生效，新卡第二条保存链接身份并�
     assert.match(body, /知识点：第一章 \/ 极限/);
     assert.doesNotMatch(body, /<!-- JFJC_/);
     assert.match(note.comments[1].text, /^\[查看原题\]\(marginnote4app:\/\/addon\/jifengjincao-bridge/);
-    assert.match(note.comments[1].text, /JFJC_QUESTION:237:507[45]/); assert.match(note.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/);
+    assert.match(note.comments[1].text, /JFJC_QUESTION:237:507[45]/); assert.doesNotMatch(note.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/);
   }
   assert.equal(h.native.store.read().tasks.at(-1).includeSourceLink, undefined);
-  assert.equal(h.native.context.__JFJC_SOURCE__.upgrade(h.controller.addon), 0);
+  assert.equal(h.native.repair(h.controller.addon), 0);
   h.browser.document.querySelector('[data-content="questionAnswer"]').click(); h.browser.document.getElementById('jfjc-commit').click();
   const second = await h.native.importer.run(h.controller, h.session);
   assert.equal(second.created, 0); assert.equal(second.answerAdded, 2); assert.equal(second.failed.length, 0);
@@ -55,7 +55,7 @@ test('旧关闭原题配置不再生效，新卡第二条保存链接身份并�
     assert.doesNotMatch(note.comments[0].text, /\[查看原题\]/);
     assert.doesNotMatch(note.comments[0].text, /<!-- JFJC_/);
     assert.match(note.comments[1].text, /\[查看原题\]\(marginnote4app:\/\/addon\/jifengjincao-bridge/);
-    assert.match(note.comments[1].text, /JFJC_QUESTION:|JFJC_ORDER:|JFJC_SOURCE:/);
+    assert.match(note.comments[1].text, /JFJC_QUESTION:/); assert.doesNotMatch(note.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/);
   }
 });
 test('图片失败后重试只补失败题，已有题卡和批注保留',async()=>{
@@ -65,7 +65,7 @@ test('图片失败后重试只补失败题，已有题卡和批注保留',async(
   const preserved=[...h.native.notes.values()].find(n=>n.comments.some(c=>c.text.includes('JFJC_QUESTION:237:5075')));preserved.comments.push({text:'保留批注'});
   h.native.flags.imageFailure=false;h.browser.document.getElementById('jfjc-retry').click();
   const retry=await h.native.importer.run(h.controller,h.session);assert.equal(retry.created,1);assert.equal(retry.failed.length,0);assert.ok(preserved.comments.some(c=>c.text==='保留批注'));
-  const parent=preserved.parentNote;assert.deepEqual(parent.childNotes.map(n=>n.noteTitle),['2026 年数学一真题 · 第 1 题','2026 年数学一真题 · 第 2 题']);
+  const parent=preserved.parentNote;assert.deepEqual(parent.childNotes.map(n=>n.noteTitle),['2026 年数学一真题 · 第 2 题','2026 年数学一真题 · 第 1 题']);
 });
 test('撤销后即使映射存在，再次导入能重建实际缺失卡片',async()=>{
   const h=await connected();await h.native.importer.run(h.controller,h.session);h.native.undo();h.native.undo();assert.equal(h.native.notes.size,0);

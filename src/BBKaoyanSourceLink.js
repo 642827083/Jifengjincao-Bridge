@@ -6,9 +6,12 @@ var __JFJC_SOURCE__ = (function () {
     return 'marginnote4app://addon/' + KEY + '?action=open&paper=' + Number(paperId) + '&question=' + Number(questionId);
   }
   function parse(message) {
+    const ai = String(message || "").indexOf(KEY + "?action=ask-ai&") === 0;
+    if (ai) message = String(message).replace("?action=ask-ai&", "?action=open&");
     const match = /^jifengjincao-bridge\?action=open&paper=(0|[1-9]\d*)&question=([1-9]\d*)$/.exec(String(message || ''));
     if (!match || !validId(match[1], true) || !validId(match[2], false)) return null;
     const paperId = Number(match[1]), questionId = Number(match[2]);
+    if (ai) return { paperId: paperId, questionId: questionId, askAi: true, url: "https://bbkaoyan.cn/questions/" + questionId };
     return { paperId: paperId, questionId: questionId, url: paperId
       ? 'https://bbkaoyan.cn/papers/' + paperId + '#question-' + questionId
       : 'https://bbkaoyan.cn/questions/' + questionId };
@@ -66,6 +69,15 @@ var __JFJC_SOURCE__ = (function () {
     if (bodyIndex < 0 && comments[1] && comments[1].indexOf(identities[0]) >= 0
       && (isLink(body(comments[1])) || !body(comments[1]))
       && body(comments[0]) && !/<!-- JFJC_|\[查看原题\]\(/.test(comments[0])) bodyIndex = 0;
+    // 兼容旧排序错误中断后的三条评论：两个匹配入口和一条无标记题干。
+    // 仅在正文唯一且没有其他个人评论时恢复，避免把个人笔记当成题干。
+    if (bodyIndex < 0 && comments.length === 3) {
+      const sources = comments.filter(function (text) { return isLink(body(text)); });
+      const bodies = comments.map(function (text, index) { return { text: text, index: index }; }).filter(function (item) {
+        return body(item.text) && !isLink(body(item.text)) && !/<!-- JFJC_|\[查看原题\]\(/.test(item.text);
+      });
+      if (sources.length === 2 && sources.some(function (text) { return text.includes(identities[0]); }) && bodies.length === 1) bodyIndex = bodies[0].index;
+    }
     if (bodyIndex < 0) return false;
     const original = comments[bodyIndex], blocks = body(original).split('\n\n');
     const sourceBlocks = blocks.filter(isLink);
@@ -84,9 +96,7 @@ var __JFJC_SOURCE__ = (function () {
       (text.match(managed) || []).forEach(function (tag) { if (annotations.indexOf(tag) < 0) annotations.push(tag); });
     });
     if (annotations.filter(function (tag) { return /^<!-- JFJC_ORDER:/.test(tag); }).length > 1) return false;
-    const sourceMarker = '<!-- JFJC_SOURCE:' + key + ' -->';
-    const order = annotations.filter(function (tag) { return /^<!-- JFJC_ORDER:/.test(tag); });
-    const metadata = [sourceText, identities[0]].concat(order, [sourceMarker]).join('\n\n');
+    const metadata = [sourceText, identities[0]].join('\n\n');
     if (updated === original && extra.length === 1 && extra[0].index === bodyIndex + 1 && extra[0].text === metadata) return false;
     N.ensureContext(addon, context);
     N.undo(context, function () {
@@ -99,7 +109,7 @@ var __JFJC_SOURCE__ = (function () {
     });
     return true;
   }
-  function upgrade(addon) {
+  function repair(addon) {
     const context = N.context(addon), work = [], merges = [], questionNotes = [];
     N.all(context.notebook).forEach(function (note) {
       const identities = N.comments(note).join('\n').match(/<!-- JFJC_QUESTION:\d+:\d+ -->/g) || [];
@@ -127,8 +137,13 @@ var __JFJC_SOURCE__ = (function () {
       N.ensureContext(addon, context);
       N.undo(context, function () { N.replaceMarkdownParts(item.note, item.index, item.before, item.parts); });
     });
-    let relocated = 0;
-    questionNotes.forEach(function (note) { if (questionLayout(note, addon, context)) relocated++; });
+    let relocated = 0; const warnings = [];
+    questionNotes.forEach(function (note) {
+      if (questionLayout(note, addon, context)) {
+        relocated++;
+        const warning = __JFJC_COMMENT_FOLD__.automatic(note); if (warning) warnings.push(warning);
+      }
+    });
     merges.forEach(function (item) {
       N.ensureContext(addon, context);
       N.undo(context, function () {
@@ -144,7 +159,7 @@ var __JFJC_SOURCE__ = (function () {
         });
       });
     });
-    return work.length + merges.length + relocated;
+    return { changed: work.length + merges.length + relocated, warnings: warnings };
   }
-  return { link: link, parse: parse, register: register, unregister: unregister, receive: receive, upgrade: upgrade };
+  return { link: link, parse: parse, register: register, unregister: unregister, receive: receive, repair: repair };
 })();

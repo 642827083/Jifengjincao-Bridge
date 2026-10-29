@@ -18,7 +18,7 @@ test('题干与选项图片离线保存，第一条无注释，第二条始终�
     assert.equal(body.includes('知识点：极限'), includeTopics);
     assert.doesNotMatch(body, /<!-- JFJC_/);
     assert.match(body, /marginnote-media:/); assert.doesNotMatch(body, /data:image|查看原题/); assert.ok(result.note.mediaList);
-    assert.equal(result.note.comments[1].text, '[查看原题](' + h.context.__JFJC_SOURCE__.link(model.paper.id, entry.id) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->\n\n<!-- JFJC_ORDER:' + entry.order + ' -->\n\n<!-- JFJC_SOURCE:237:5074 -->');
+    assert.equal(result.note.comments[1].text, '[查看原题](' + h.context.__JFJC_SOURCE__.link(model.paper.id, entry.id) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->');
     assert.ok(result.note.comments.every(comment => comment.text.replace(/<!--[\s\S]*?-->/g, '').trim()));
   }
 });
@@ -32,7 +32,7 @@ test('答案身份跟随首条正文，原题链接是独立评论，缺少答�
     assert.equal(result.note.comments.length, 2);
     assert.doesNotMatch(result.note.comments[0].text, /查看原题/);
     assert.doesNotMatch(result.note.comments[0].text, /<!-- JFJC_/);
-    assert.equal(result.note.comments[1].text, '[查看原题](' + h.context.__JFJC_SOURCE__.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->\n\n<!-- JFJC_ORDER:' + e.order + ' -->\n\n<!-- JFJC_SOURCE:237:5074 -->');
+    assert.equal(result.note.comments[1].text, '[查看原题](' + h.context.__JFJC_SOURCE__.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->');
     const answer = result.note.childNotes[0], original = answer.comments[0].text;
     assert.match(original, new RegExp('### ' + (explanationOnly ? '解析' : '答案')));
     assert.match(original, /JFJC_ANSWER:237:5074/);
@@ -45,14 +45,14 @@ test('答案身份跟随首条正文，原题链接是独立评论，缺少答�
     assert.equal(h.importer.answerStatus(result.note, '237:5074').explanation, true);
   }
 });
-test('按原卷排序，保留 LaTeX 与答案解析，把图片存为媒体', () => {
+test('分次导入追加到试卷末尾，保留 LaTeX 与答案解析，把图片存为媒体', () => {
   const h=nativeHost(), model=h.adapter.normalize(envelope()), c=h.native.context({window:{}});
   assert.deepEqual(Array.from(model.entries,e=>e.id),[5074,5075]);
   const first=h.importer.write(c,model.paper,model.entries[1],prepared(h,model.entries[1],model.paper),null,true);
   const second=h.importer.write(c,model.paper,model.entries[0],prepared(h,model.entries[0],model.paper),null,true);
   assert.equal(second.created,true); assert.equal(second.missing,'');
   const parent=second.note.parentNote;
-  assert.deepEqual(parent.childNotes.map(n=>n.noteTitle),['2026 年数学一真题 · 第 1 题','2026 年数学一真题 · 第 2 题']);
+  assert.deepEqual(parent.childNotes.map(n=>n.noteTitle),['2026 年数学一真题 · 第 2 题','2026 年数学一真题 · 第 1 题']);
   assert.match(first.note.comments[0].text,/\$f\(x\)\$/);
   const answer=second.note.childNotes[0]; assert.equal(answer.noteTitle,'答案与解析');
   assert.ok(answer.mediaList); assert.ok(!answer.comments.some(c=>c.text.includes('data:image')));
@@ -66,6 +66,19 @@ test('补答案保留已有题干、自建评论、手写和子卡', () => {
   const result=h.importer.write(c,m.paper,e,prepared(h,e,m.paper,false,true),first.note,true);
   assert.equal(result.created,false); assert.equal(result.answerAdded,true);
   assert.equal(first.note.comments[0].text,body); assert.equal(first.note.comments[2].text,'我的笔记');assert.equal(first.note.strokes,'手写');assert.ok(first.note.childNotes.includes(custom));
+});
+
+test('旧卡保留顺序标记和个人子卡时，补导仍追加末尾且不改已有内容', () => {
+  const h = nativeHost(), model = h.adapter.normalize(envelope()), context = h.native.context({ window: {} });
+  const old = h.importer.write(context, model.paper, model.entries[1], prepared(h, model.entries[1], model.paper), null, false).note;
+  old.comments[1].text += '\n\n<!-- JFJC_ORDER:2 -->\n\n<!-- JFJC_SOURCE:237:5075 -->';
+  old.noteTitle = '我的自定义标题'; old.comments.push({ text: '个人笔记' });
+  const personal = h.database.createNoteWithTitleTopicid('个人卡片', 'book-1'); h.native.add(old.parentNote, personal);
+  const comments = JSON.stringify(old.comments);
+  const added = h.importer.write(context, model.paper, model.entries[0], prepared(h, model.entries[0], model.paper), null, false).note;
+  assert.deepEqual(old.parentNote.childNotes, [old, personal, added]);
+  assert.equal(JSON.stringify(old.comments), comments); assert.equal(old.noteTitle, '我的自定义标题');
+  assert.equal(h.store.read().questionOrders, undefined);
 });
 test('部分答案以后只补缺失解析，保护答案评论', () => {
   const h=nativeHost(), data=envelope();data.questions[0].question.explanation_latex='';
@@ -106,14 +119,14 @@ test('MN Utils 静默挂接失败必须判为失败并清理节点',()=>{
   const h=nativeHost(), m=h.adapter.normalize(envelope()), c=h.native.context({window:{}}), e=m.entries[0];h.flags.childFailure=true;
   assert.throws(()=>h.importer.write(c,m.paper,e,prepared(h,e,m.paper),null,true),/挂接/);assert.equal(h.notes.size,0);
 });
-test('先导入解答题再导入选择题，题卡直接放在试卷下并按原题号排列',()=>{
+test('先导入解答题再导入选择题，题卡直接放在试卷下并保持追加次序',()=>{
   const h=nativeHost(), data=envelope();data.questions[0].section_title='三、解答题';data.questions[0].display_order=22;data.questions[0].question.question_type='solution';
   const m=h.adapter.normalize(data), c=h.native.context({window:{}});
   const first=h.importer.write(c,m.paper,m.entries[1],prepared(h,m.entries[1],m.paper),null,true);
   h.importer.write(c,m.paper,m.entries[0],prepared(h,m.entries[0],m.paper),null,true);
   const paperNode = first.note.parentNote;
   assert.equal(paperNode.noteTitle, m.paper.title);
-  assert.deepEqual(paperNode.childNotes.map(n=>n.noteTitle), ['2026 年数学一真题 · 第 1 题', '2026 年数学一真题 · 第 2 题']);
+  assert.deepEqual(paperNode.childNotes.map(n=>n.noteTitle), ['2026 年数学一真题 · 第 2 题', '2026 年数学一真题 · 第 1 题']);
   assert.ok([...h.notes.values()].every(n=>!n.comments.some(c=>c.text.includes('JFJC_SECTION:'))));
 });
 

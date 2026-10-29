@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { nativeHost, browserHost, source, tick, envelope } from './helpers.mjs';
+import { nativeHost, browserHost, source, tick, envelope, reviewPageHTML } from './helpers.mjs';
 import { pageScriptSource } from '../scripts/web-bundle.mjs';
 
 function locatorHost() {
@@ -168,14 +168,16 @@ test('题目详情和真实复盘题目可定位，普通对话与未知上下�
   const b = browserHost(); b.location.pathname = '/questions/5074'; webCard(b, 5074); tools(b).configure({ enabled: true });
   assert.equal(tools(b).matches({ paperId: 0, questionId: 5074, route: '/questions/5074' }), true);
   b.location.pathname = '/assistant/conversations/thread/review';
-  b.document.body.innerHTML = '<section class="review-chat-pane"><div class="review-chat-heading"><span>本题对话</span><small>题目上下文 #5519</small></div></section>';
+  b.document.body.innerHTML = reviewPageHTML(5519, 29894);
   await new Promise(r => setTimeout(r, 70));
   assert.equal(b.document.querySelectorAll('.jfjc-locate-card').length, 1);
-  assert.equal(tools(b).matches({ paperId: 0, questionId: 5519, route: b.location.pathname }), true);
-  b.document.querySelector('small').textContent = '题目上下文 #5605';
+  const original = b.document.querySelector('.jfjc-locate-card').__jfjcTarget;
+  assert.equal(original.questionId, 5519); assert.equal(tools(b).matches(original), true);
+  b.document.body.innerHTML = reviewPageHTML(5605, 29895);
   await new Promise(r => setTimeout(r, 70));
-  assert.equal(tools(b).matches({ paperId: 0, questionId: 5519, route: b.location.pathname }), false);
-  assert.equal(tools(b).matches({ paperId: 0, questionId: 5605, route: b.location.pathname }), true);
+  assert.equal(tools(b).matches(original), false);
+  const current = b.document.querySelector('.jfjc-locate-card').__jfjcTarget;
+  assert.equal(current.questionId, 5605); assert.equal(tools(b).matches(current), true);
   b.location.pathname = '/assistant/conversations/thread/solve'; tools(b).refresh();
   assert.equal(b.document.querySelector('.jfjc-locate-card'), null);
 });

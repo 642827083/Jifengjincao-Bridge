@@ -24,7 +24,10 @@ export function nativeHost() {
   function rawNote(id, title) {
     const note = { noteId: id, noteTitle: title, comments: [], childNotes: [], mediaList: '', notebookId: 'book-1', parentNote: null,
       insertChildBefore(child, before) { detach(child); child.parentNote = note; note.childNotes.splice(note.childNotes.indexOf(before), 0, child); sync(); },
-      sortCommentsByNewIndices(indices) { note.comments = indices.map(i => note.comments[i]); } };
+      sortCommentsByNewIndices(destinations) {
+        const before = note.comments.slice();
+        destinations.forEach((newIndex, oldIndex) => { note.comments[newIndex] = before[oldIndex]; });
+      } };
     return note;
   }
   function detach(note) { if (note.parentNote) note.parentNote.childNotes = note.parentNote.childNotes.filter(n => n !== note); note.parentNote = null; }
@@ -63,13 +66,14 @@ export function nativeHost() {
     NSJSONSerialization: { JSONObjectWithDataOptions: data => JSON.parse(data.json), dataWithJSONObjectOptions: value => ({ writeToFileAtomically(p, atomic) { if (!atomic || flags.saveFailure) return false; files.set(p, JSON.stringify(value)); return true; } }) }
   };
   const context = vm.createContext(host);
-  for (const name of ['JifengjincaoNative', 'JifengjincaoSettings', 'BBKaoyanAdapter', 'BBKaoyanSourceLink', 'BBKaoyanFormat', 'BBKaoyanImportStore', 'BBKaoyanTransport', 'BBKaoyanClipboard', 'BBKaoyanImport', 'JifengjincaoCardLocatorUI', 'JifengjincaoCardLocator', 'JifengjincaoSingleImport', 'WebBridgeCommands']) vm.runInContext(source('src/' + name + '.js'), context, { filename: name });
+  for (const name of ['JifengjincaoNative', 'JifengjincaoNavigationMotion', 'JifengjincaoPanelNavigation', 'JifengjincaoSettingsNavigation', 'JifengjincaoSettings', 'BBKaoyanAdapter', 'BBKaoyanSourceLink', 'JifengjincaoCommentFold', 'BBKaoyanFormat', 'BBKaoyanImportStore', 'BBKaoyanTransport', 'JifengjincaoHandwriting', 'BBKaoyanClipboard', 'BBKaoyanImport', 'JifengjincaoCardLocatorUI', 'JifengjincaoCardLocator', 'JifengjincaoSingleImport', 'WebBridgeCommands']) vm.runInContext(source('src/' + name + '.js'), context, { filename: name });
   function undo() {
     const state = snapshots.pop(); notes.clear();
     state.forEach(s => { const n = rawNote(s.id, s.title); n.comments = s.comments; n.mediaList = s.mediaList; notes.set(s.id,n); });
     state.forEach(s => { if (s.parent) wrapper(notes.get(s.parent)).addChild(notes.get(s.id)); }); sync();
   }
   return { host, context, notes, files, flags, database, notebook, notebookController, snapshots, hud, undo, switchNotebook: id => { current = id; },
+    repair(addon) { return context.__JFJC_SOURCE__.repair(addon).changed; },
     native: context.__JFJC_NATIVE__, adapter: context.__JFJC_ADAPTER__, format: context.__JFJC_FORMAT__, importer: context.__JFJC_IMPORT__, store: context.__JFJC_STORE__, transport: context.__JFJC_TRANSPORT__ };
 }
 export function browserHost(data = envelope(), responseFor, origin = 'https://bbkaoyan.cn') {
@@ -102,6 +106,10 @@ export function browserHost(data = envelope(), responseFor, origin = 'https://bb
   return { window, location, context, calls, frames, errors, runtime: window.__JFJC_PAGE__, document: window.document };
 }
 export async function tick() { await new Promise(resolve => setTimeout(resolve, 0)); }
+// 复盘记录编号与题库题号属于不同身份，保持与网站左右分栏结构一致。
+export function reviewPageHTML(questionId = 5684, reviewItemId = 29894) {
+  return '<div class="review-workspace-grid"><section class="review-question-pane"><article class="review-question-card"><header class="review-question-heading"><h2 class="review-question-kicker">第 23 题 · 题库内容</h2><p class="review-question-source" aria-label="题号 ' + questionId + '"><span>题号：' + questionId + '</span><span> · 三、解答题</span></p></header><p>题干</p></article></section><section class="review-chat-pane"><div class="review-chat-heading"><span>本题对话</span><small>题目上下文 #' + reviewItemId + '</small></div></section></div>';
+}
 export async function open(browser, scope = 'all') { await browser.runtime.open(scope, { token: 'test-task', target: '我的学习集', content: 'questionAnswer' }); }
 export async function packet(browser, start) {
   const accepted = start(); if (accepted !== 'accepted') throw new Error(accepted);

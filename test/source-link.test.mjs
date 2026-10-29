@@ -10,11 +10,11 @@ test('临时 top 域名的受管理旧卡入口升级后在 cn 打开，正文�
     const path = paperId ? '/papers/' + paperId + '#question-5074' : '/questions/5074';
     const identity = '<!-- JFJC_QUESTION:' + paperId + ':5074 -->';
     note.comments.push({ text: '完整题干\n\n[查看原题](https://bbkaoyan.top' + path + ')\n\n' + identity }, { text: '我的笔记' });
-    assert.equal(links.upgrade({ window: {} }), 1);
+    assert.equal(h.repair({ window: {} }), 1);
     assert.equal(note.comments[0].text, '完整题干'); assert.equal(note.comments[2].text, '我的笔记');
     const url = /\[查看原题\]\(([^)]+)\)/.exec(note.comments[1].text)[1];
     assert.equal(links.parse(url.replace('marginnote4app://addon/', '')).url, 'https://bbkaoyan.cn' + path);
-    assert.ok(note.comments[1].text.includes(identity)); assert.equal(links.upgrade({ window: {} }), 0);
+    assert.ok(note.comments[1].text.includes(identity)); assert.equal(h.repair({ window: {} }), 0);
   }
 });
 
@@ -35,7 +35,7 @@ test('无法确认题干、注释身份冲突或用户改过链接时不搬动�
   ];
   const notes = samples.map(comments => { const note = h.database.createNoteWithTitleTopicid('题卡', 'book-1'); note.comments.push(...comments); return note; });
   const before = notes.map(note => JSON.stringify(note.comments));
-  assert.equal(links.upgrade({ window: {} }), 0);
+  assert.equal(h.repair({ window: {} }), 0);
   assert.deepEqual(notes.map(note => JSON.stringify(note.comments)), before);
 });
 
@@ -47,18 +47,19 @@ test('旧题卡注释集中到第二条原题链接后，关闭链接的旧卡�
     const sourceMarker = '<!-- JFJC_SOURCE:237:5074 -->', source = '[查看原题](' + links.link(237, 5074) + ')';
     const includeLink = ['original', 'combined', 'final', 'current'].includes(style);
     const finalBody = body + '\n\n' + annotations + (includeLink ? '\n\n' + sourceMarker : '');
-    const finalSource = source + '\n\n' + annotations + '\n\n' + sourceMarker;
+    const oldSource = source + '\n\n' + annotations + '\n\n' + sourceMarker;
+    const finalSource = source + '\n\n<!-- JFJC_QUESTION:237:5074 -->';
     if (style === 'original') note.comments.push({ text: body + '\n\n' + annotations }, { text: source + '\n\n' + sourceMarker });
     else if (style === 'combined') note.comments.push({ text: body }, { text: source + '\n\n' + annotations + '\n\n' + sourceMarker });
     else if (style === 'metadataOnly') note.comments.push({ text: body }, { text: annotations });
-    else if (style === 'current') note.comments.push({ text: body }, { text: finalSource });
+    else if (style === 'current') note.comments.push({ text: body }, { text: oldSource });
     else { note.comments.push({ text: finalBody }); if (includeLink) note.comments.push({ text: source }); }
     const user = { text: '我的批注' }, paint = { type: 'PaintNote', paint: '手写' };
     note.comments.push(user, paint); note.mediaList = 'saved'; note.strokes = '我的手写';
     const child = h.database.createNoteWithTitleTopicid('我的解法', 'book-1'); h.native.add(note, child);
     const addon = { window: {} }, context = h.native.context(addon);
-    const before = note.comments.map(c => c.text), migrated = ['combined', 'current'].includes(style) ? 0 : 1;
-    assert.equal(links.upgrade(addon), migrated);
+    const before = note.comments.map(c => c.text), migrated = 1;
+    assert.equal(h.repair(addon), migrated);
     assert.equal(note.comments[0].text, body);
     const userIndex = 2;
     assert.equal(note.comments[1].text, finalSource);
@@ -66,7 +67,7 @@ test('旧题卡注释集中到第二条原题链接后，关闭链接的旧卡�
     assert.equal(note.comments.length, userIndex + 2);
     assert.equal(note.noteTitle, '自定义标题'); assert.equal(note.mediaList, 'saved'); assert.equal(note.strokes, '我的手写'); assert.equal(note.childNotes[0], child);
     assert.equal(h.importer.index(context)['237:5074'], note);
-    assert.equal(links.upgrade(addon), 0);
+    assert.equal(h.repair(addon), 0);
     if (migrated) { h.undo(); assert.deepEqual(h.notes.get(note.noteId).comments.map(c => c.text), before); }
   }
 });
@@ -75,25 +76,25 @@ test('旧卡注释迁移失败保留身份和原文，第二步删除失败后�
   for (const failure of ['append', 'remove']) {
     const h = nativeHost(), links = h.context.__JFJC_SOURCE__, note = h.database.createNoteWithTitleTopicid('题目', 'book-1');
     const original = '题干\n\n<!-- JFJC_QUESTION:237:5074 -->\n\n<!-- JFJC_ORDER:1 -->';
-    const source = '[查看原题](' + links.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->\n\n<!-- JFJC_ORDER:1 -->\n\n<!-- JFJC_SOURCE:237:5074 -->';
+    const source = '[查看原题](' + links.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->';
     const oldSource = '[查看原题](' + links.link(237, 5074) + ')';
     note.comments.push({ text: original }, { text: oldSource }, { text: '批注' });
     const wrap = h.context.MNNote.new;
     h.context.MNNote.new = raw => {
       const wrapped = wrap(raw), append = wrapped.appendMarkdownComment, remove = wrapped.removeCommentByIndex;
-      wrapped.appendMarkdownComment = text => { if (failure === 'append' && text.includes('JFJC_SOURCE:')) throw new Error('模拟保存失败'); append(text); };
+      wrapped.appendMarkdownComment = text => { if (failure === 'append' && text.startsWith('[查看原题](')) throw new Error('模拟保存失败'); append(text); };
       wrapped.removeCommentByIndex = index => { if (failure === 'remove' && index === 2) return; remove(index); };
       return wrapped;
     };
-    assert.throws(() => links.upgrade({ window: {} }), /保存失败|未能替换/);
+    assert.throws(() => h.repair({ window: {} }), /保存失败|未能替换/);
     assert.ok(note.comments[0].text.startsWith('题干')); assert.equal(note.comments.at(-1).text, '批注');
     if (failure === 'append') assert.deepEqual(note.comments.map(c => c.text), [original, oldSource, '批注']);
     assert.equal(h.importer.index(h.native.context({ window: {} }))['237:5074'], note);
     h.context.MNNote.new = wrap;
-    assert.equal(links.upgrade({ window: {} }), 1); assert.equal(note.comments[0].text, '题干');
+    assert.equal(h.repair({ window: {} }), 1); assert.equal(note.comments[0].text, '题干');
     assert.equal(note.comments.length, 3); assert.equal(note.comments[1].text, source);
-    assert.match(note.comments[1].text, /JFJC_QUESTION:237:5074/); assert.match(note.comments[1].text, /JFJC_ORDER:1/);
-    assert.equal(links.upgrade({ window: {} }), 0);
+    assert.match(note.comments[1].text, /JFJC_QUESTION:237:5074/); assert.doesNotMatch(note.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/);
+    assert.equal(h.repair({ window: {} }), 0);
   }
 });
 
@@ -114,13 +115,13 @@ test('旧卡片原题链接拆分为独立评论，其他评论顺序、手写�
   note.comments.push(user, { type: 'TextNote', markdown: true, text: oldBody }, paint); note.strokes = '手写'; note.mediaList = 'local-media';
   const child = h.database.createNoteWithTitleTopicid('我的解法', 'book-1'); h.native.wrap(note).addChild(child);
   const external = h.database.createNoteWithTitleTopicid('普通链接', 'book-1'); external.comments.push({ text: oldBody.replace('<!-- JFJC_QUESTION:237:5074 -->', '') });
-  assert.equal(links.upgrade(addon), 1);
+  assert.equal(h.repair(addon), 1);
   assert.equal(note.comments[1].text, '题干 $x^2$\n\n![图](marginnote-media://sample)');
-  assert.equal(note.comments[2].text, '[查看原题](' + links.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->\n\n<!-- JFJC_SOURCE:237:5074 -->');
+  assert.equal(note.comments[2].text, '[查看原题](' + links.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->');
   assert.equal(note.comments[0], user); assert.equal(note.comments[3], paint);
   assert.equal(note.noteTitle, '我的题卡标题'); assert.equal(note.mediaList, 'local-media'); assert.equal(note.strokes, '手写'); assert.equal(note.childNotes[0], child);
   assert.match(external.comments[0].text, /https:\/\/bbkaoyan/);
-  assert.equal(links.upgrade(addon), 0); assert.equal(h.snapshots.length, 1);
+  assert.equal(h.repair(addon), 0); assert.equal(h.snapshots.length, 1);
   h.undo(); assert.equal(h.database.getNoteById(note.noteId).comments[1].text, oldBody);
 });
 
@@ -151,17 +152,17 @@ test('原题通知只打开当前窗口，并忽略其他插件或非法消息',
 test('旧答案纯标记并入答案末尾，只有解析时并入解析，批注保留且可撤销', () => {
   for (const part of ['answer', 'explanation']) {
     const h = nativeHost(), parent = h.database.createNoteWithTitleTopicid('题目', 'book-1');
-    parent.comments.push({ text: '题干' }, { text: '[查看原题](' + h.context.__JFJC_SOURCE__.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->\n\n<!-- JFJC_SOURCE:237:5074 -->' });
+    parent.comments.push({ text: '题干' }, { text: '[查看原题](' + h.context.__JFJC_SOURCE__.link(237, 5074) + ')\n\n<!-- JFJC_QUESTION:237:5074 -->' });
     const answer = h.database.createNoteWithTitleTopicid('答案与解析', 'book-1'); h.native.add(parent, answer);
     const identity = '<!-- JFJC_ANSWER:237:5074 -->', original = '### ' + (part === 'answer' ? '答案\n\nB' : '解析\n\n推导') + '\n\n<!-- JFJC_PART:' + part + ' -->';
     const user = { text: '我的笔记' }, paint = { type: 'PaintNote', paint: '手写' };
     answer.comments.push({ text: identity }, { text: original }, user, paint); answer.mediaList = 'local-image';
     const links = h.context.__JFJC_SOURCE__;
-    assert.equal(links.upgrade({ window: {} }), 1);
+    assert.equal(h.repair({ window: {} }), 1);
     assert.equal(answer.comments.length, 3); assert.equal(answer.comments[0].text, original + '\n\n' + identity);
     assert.equal(answer.comments[1], user); assert.equal(answer.comments[2], paint); assert.equal(answer.mediaList, 'local-image');
     assert.equal(h.importer.answerStatus(parent, '237:5074').note, answer);
-    assert.equal(links.upgrade({ window: {} }), 0);
+    assert.equal(h.repair({ window: {} }), 0);
     h.undo(); assert.deepEqual(h.database.getNoteById(answer.noteId).comments.map(c => c.text), [identity, original, '我的笔记', undefined]);
   }
 });
@@ -172,7 +173,7 @@ test('只有注释或自行修改的答案身份不迁移，自改原题链接�
   for (const text of ['<!-- JFJC_ANSWER:237:5074 -->', '我的说明 <!-- JFJC_ANSWER:237:5074 -->']) {
     const child = h.database.createNoteWithTitleTopicid('答案与解析', 'book-1'); h.native.add(parent, child); child.comments.push({ text });
   }
-  assert.equal(h.context.__JFJC_SOURCE__.upgrade({ window: {} }), 0);
+  assert.equal(h.repair({ window: {} }), 0);
   assert.equal(parent.comments[0].text, body);
 });
 
@@ -183,11 +184,11 @@ test('拆分追加失败或旧评论未删除时不丢失原文、不残留新�
     const wrap = h.context.MNNote.new;
     h.context.MNNote.new = raw => {
       const wrapped = wrap(raw), append = wrapped.appendMarkdownComment, remove = wrapped.removeCommentByIndex;
-      wrapped.appendMarkdownComment = text => { if (failure === 'append' && text.includes('JFJC_SOURCE:')) throw new Error('模拟保存失败'); append(text); };
+      wrapped.appendMarkdownComment = text => { if (failure === 'append' && text.startsWith('[查看原题](')) throw new Error('模拟保存失败'); append(text); };
       wrapped.removeCommentByIndex = index => { if (failure === 'remove' && index === 0) return; remove(index); };
       return wrapped;
     };
-    assert.throws(() => h.context.__JFJC_SOURCE__.upgrade({ window: {} }), /保存失败|未能替换/);
+    assert.throws(() => h.repair({ window: {} }), /保存失败|未能替换/);
     assert.deepEqual(note.comments.map(c => c.text), [oldBody, '批注']); assert.equal(note.comments[1], user);
   }
 });
@@ -201,4 +202,21 @@ test('通知监听只注册一次，断开后释放，优先 MN Utils 并支持�
     links.register(addon); links.register(addon); assert.equal(calls.length, 1); assert.equal(calls[0][2], 'onSourceLink:'); assert.equal(calls[0][3], 'AddonBroadcast');
     links.unregister(addon); assert.equal(calls.length, 2); assert.equal(calls[1][2], 'AddonBroadcast'); assert.equal(addon.sourceLinkObserver, null);
   }
+});
+
+
+test('问 AI 从试卷与单题卡进入该题自带 AI 的详情页，原题入口保持不变', () => {
+  const h = nativeHost(), links = h.context.__JFJC_SOURCE__, active = {}, opened = [];
+  h.context.MNUtil.currentWindow = active;
+  h.context.__JFJC_PANEL__ = { create(addon) { return { addon }; }, openSource(controller, target) { opened.push(target); } };
+  for (const paper of [0, 237]) {
+    const message = 'jifengjincao-bridge?action=ask-ai&paper=' + paper + '&question=5074';
+    assert.equal(links.parse(message).url, 'https://bbkaoyan.cn/questions/5074');
+    assert.equal(links.parse(message).askAi, true);
+    assert.equal(links.receive({ window: {} }, { userInfo: { message } }), false);
+    assert.equal(links.receive({ window: active }, { userInfo: { message } }), true);
+    assert.equal(opened.at(-1).questionId, 5074);
+    assert.equal(links.parse(message + '&prompt=hello'), null);
+  }
+  assert.equal(links.parse('jifengjincao-bridge?action=ask-ai&paper=0&question=0'), null);
 });

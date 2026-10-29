@@ -3,16 +3,19 @@
   if (window.location.origin !== 'https://bbkaoyan.cn') return;
   if (window.__JFJC_REVIEW__) { window.__JFJC_REVIEW__.install(); return; }
   const MAX = 10 * 1024 * 1024, MAX_TEXT = 1024 * 1024, CHUNK = 65536;
-  let transfer = null, scheduled = false, nextComposer = 0, enabled = true;
+  let transfer = null, scheduled = false, nextComposer = 0, enabled = true, uploadSource = 'clipboard', uploadRevision = 0;
   let selections = new WeakMap();
   const keys = new WeakMap();
   function forms() {
-    if (!/^\/assistant\/conversations\/[A-Za-z0-9_-]+(?:\/(?:review|solve|search))?\/?$/.test(window.location.pathname)) return [];
     return Array.from(document.querySelectorAll('form.assistant-composer')).filter(function (form) {
       return form.querySelector('textarea') && form.querySelector('input[type="file"]') && form.querySelector('.assistant-composer-actions');
     });
   }
-  function key(form) { if (!keys.has(form)) keys.set(form, 'composer-' + (++nextComposer)); return keys.get(form); }
+  function key(form) {
+    const editor = form.querySelector('textarea'), old = keys.get(form);
+    if (!old || old.editor !== editor) keys.set(form, { editor: editor, id: 'composer-' + (++nextComposer) });
+    return keys.get(form).id;
+  }
   function find(scope) { return forms().find(function (form) { return !scope || key(form) === scope; }); }
   function context(scope) {
     const form = find(scope); if (!form) return null;
@@ -20,21 +23,23 @@
     const id = heading && /题目上下文\s*#([1-9]\d*)/.exec(heading.textContent || '');
     if (pane && (!id || !Number.isSafeInteger(Number(id[1])))) return null;
     if (/\/review\/?$/.test(window.location.pathname) && !pane) return null;
-    return { item: id ? id[1] : '', composer: key(form), route: window.location.pathname + window.location.search };
+    return { item: id ? id[1] : '', composer: key(form), route: window.location.pathname + window.location.search, uploadRevision: uploadRevision };
   }
   function same(expected) {
     const actual = context(expected.composer);
-    return window.location.origin === 'https://bbkaoyan.cn' && actual && actual.composer === expected.composer && actual.item === expected.item && actual.route === expected.route;
+    return window.location.origin === 'https://bbkaoyan.cn' && actual && actual.composer === expected.composer && actual.item === expected.item && actual.route === expected.route && actual.uploadRevision === expected.uploadRevision;
   }
-  function reason(target, type) {
-    if (!enabled) return '粘贴已在设置中关闭';
-    if (!target || !same(target)) return '当前对话或题目已切换，请重新点击粘贴';
+  function reason(target, type, handwriting) {
+    if (!enabled) return '上传已在设置中关闭';
+    if (!target || !same(target)) return '当前对话或题目已切换，请重新点击上传';
+    if (handwriting === undefined) handwriting = uploadSource === 'handwriting';
+    if (handwriting) type = 'image/png';
     const form = find(target.composer), input = form.querySelector('textarea'), upload = form.querySelector('input[type="file"]');
-    if (input.disabled || input.readOnly) return '当前对话正在处理，请稍候再粘贴';
-    if (/^image\//.test(type || '') && upload.disabled) return form.querySelectorAll('.assistant-attachment-item').length >= 5 ? '本次附件已满 5 个，请先移除一个附件' : '当前对话暂时无法添加附件，请稍候再试';
+    if (input.disabled || input.readOnly) return '当前对话正在处理，请稍候再上传';
+    if (/^image\//.test(type || '') && (upload.disabled || form.querySelectorAll('.assistant-attachment-item').length >= 5)) return form.querySelectorAll('.assistant-attachment-item').length >= 5 ? '本次附件已满 5 个，请先移除一个附件' : '当前对话暂时无法添加附件，请稍候再试';
     return '';
   }
-  function available(target, type) { return !reason(target, type); }
+  function available(target, type, handwriting) { return !reason(target, type, handwriting); }
   function busy() { return transfer && /^(receiving|uploading|pasting)$/.test(transfer.status); }
   function selection(target) {
     const editor = find(target.composer).querySelector('textarea'), value = editor.value;
@@ -51,16 +56,18 @@
     install();
   }
   function install() {
-    // 统一插入网站共用的附件操作栏，保持上传、Pro、粘贴的顺序。
-    document.querySelectorAll('.review-chat-heading .jfjc-paste-record').forEach(function (button) { button.remove(); });
-    if (!enabled) { document.querySelectorAll('.jfjc-paste-record').forEach(function (button) { button.remove(); }); return; }
+    // 合并插件的粘贴和手写入口，统一插入网站附件操作栏。
+    document.querySelectorAll('.jfjc-paste-record,.jfjc-upload-handwriting').forEach(function (button) { button.remove(); });
+    document.querySelectorAll('.review-chat-heading .jfjc-upload-content').forEach(function (button) { button.remove(); });
+    if (!enabled) document.querySelectorAll('.jfjc-upload-content').forEach(function (button) { button.remove(); });
     forms().forEach(function (form) {
       const target = context(key(form)); if (!target) return;
       const actions = form.querySelector('.assistant-composer-actions');
-      let button = actions.querySelector('.jfjc-paste-record');
+      if (!enabled) return;
+      let button = actions.querySelector('.jfjc-upload-content');
       if (!button) {
-        button = document.createElement('button'); button.id = key(form) === 'composer-1' ? 'jfjc-paste-record' : 'jfjc-paste-record-' + key(form); button.type = 'button';
-        button.className = 'assistant-pro-toggle jfjc-paste-record';
+        button = document.createElement('button'); button.id = key(form) === 'composer-1' ? 'jfjc-upload-content' : 'jfjc-upload-content-' + key(form); button.type = 'button';
+        button.className = 'assistant-pro-toggle jfjc-upload-content';
         // 在按钮获得焦点前保存文字选区，兼容触摸、鼠标和键盘激活。
         ['pointerdown', 'mousedown', 'touchstart'].forEach(function (name) { button.addEventListener(name, function () { capture(form); }); });
         ['pointercancel', 'touchcancel'].forEach(function (name) { button.addEventListener(name, function () { selections.delete(form); }); });
@@ -70,7 +77,7 @@
           if (!selections.has(form)) capture(form);
           button.disabled = true;
           const frame = document.createElement('iframe'); frame.hidden = true;
-          frame.src = 'jifengjincaobridge://paste-record?token=&scope=' + encodeURIComponent(current.composer);
+          frame.src = 'jifengjincaobridge://upload-content?token=&scope=' + encodeURIComponent(current.composer);
           document.body.appendChild(frame); window.setTimeout(function () { frame.remove(); install(); }, 800);
         });
       }
@@ -80,40 +87,42 @@
       if (previous && previous.nextElementSibling !== button) actions.insertBefore(button, previous.nextSibling);
       else if (!previous && button.parentNode !== actions) actions.prepend(button);
       const active = busy(), problem = reason(target);
-      const label = active && transfer.target.composer === target.composer ? '粘贴中…' : '粘贴', disabled = Boolean(active || problem);
+      const label = active && transfer.target.composer === target.composer ? '上传中…' : '上传', disabled = Boolean(active || problem);
       if (button.textContent !== label) button.textContent = label;
       if (button.disabled !== disabled) button.disabled = disabled;
-      const title = problem || '粘贴文字到输入框，或将图片添加为附件；不会自动发送';
+      const title = problem || (uploadSource === 'handwriting' ? '上传所选卡片的最后一条手写批注；不会自动发送' : '读取剪贴板，文字粘贴到输入框，图片添加为附件；不会自动发送');
       if (button.title !== title) button.title = title;
     });
     if (!document.getElementById('jfjc-review-style')) {
       const style = document.createElement('style'); style.id = 'jfjc-review-style';
-      style.textContent = '.assistant-composer-actions>.jfjc-paste-record{font:inherit;font-size:12px;line-height:1.3;min-height:32px;padding:5px 10px;flex:0 0 auto;white-space:nowrap;border:1px solid #d9e2e4;border-radius:999px;background:#fff;color:#35616a;cursor:pointer}.jfjc-paste-record:disabled{opacity:.55;cursor:default}.jfjc-paste-record:focus-visible{outline:2px solid #35616a;outline-offset:2px}@media(max-width:600px){.assistant-composer-actions:has(>.jfjc-paste-record) .assistant-composer-hint{display:none}}';
+      style.textContent = '.assistant-composer-actions>.jfjc-upload-content{font:inherit;font-size:12px;line-height:1.3;min-height:32px;padding:5px 10px;flex:0 0 auto;white-space:nowrap;border:1px solid #d9e2e4;border-radius:999px;background:#fff;color:#35616a;cursor:pointer}.jfjc-upload-content:disabled{opacity:.55;cursor:default}.jfjc-upload-content:focus-visible{outline:2px solid #35616a;outline-offset:2px}@media(max-width:600px){.assistant-composer-actions:has(>.jfjc-upload-content) .assistant-composer-hint{display:none}.review-chat-pane .assistant-composer-actions{flex-wrap:wrap;gap:6px}}';
       document.head.appendChild(style);
     }
   }
-  function prepare(target, token, type, name, length) {
-    if (!same(target) || !available(target, type) || busy()) return false;
+  function prepare(target, token, type, name, length, handwriting) {
+    handwriting = handwriting === true;
+    if (!same(target) || !available(target, type, handwriting) || busy()) return false;
     const text = type === 'text/plain';
+    if (handwriting && text) return false;
     if (!token || !(text || /^image\/(png|jpeg)$/.test(type)) || !name || !Number.isSafeInteger(length) || length < (text ? 1 : 4) || length > (text ? MAX_TEXT : Math.ceil(MAX / 3) * 4)) return false;
     const form = find(target.composer), saved = text ? selections.get(form) || selection(target) : null;
     selections.delete(form);
-    transfer = { target: target, token: token, type: type, name: name, length: length, offset: 0, chunks: [], status: 'receiving', started: Date.now(), selection: saved };
-    if (saved && (!same(saved.target) || saved.editor !== form.querySelector('textarea') || saved.value !== saved.editor.value)) { finish('error', '输入框内容已变化，请重新点击粘贴'); return false; }
+    transfer = { target: target, token: token, type: type, name: name, length: length, offset: 0, chunks: [], status: 'receiving', started: Date.now(), selection: saved, handwriting: handwriting };
+    if (saved && (!same(saved.target) || saved.editor !== form.querySelector('textarea') || saved.value !== saved.editor.value)) { finish('error', '输入框内容已变化，请重新点击上传'); return false; }
     install(); return true;
   }
   function append(token, offset, chunk) {
     if (!transfer || transfer.token !== token || transfer.status !== 'receiving' || !same(transfer.target)) return false;
-    if (offset !== transfer.offset || typeof chunk !== 'string' || !chunk.length || chunk.length > CHUNK || transfer.offset + chunk.length > transfer.length || transfer.type !== 'text/plain' && !/^[A-Za-z0-9+/=]+$/.test(chunk)) return false;
+    if (offset !== transfer.offset || typeof chunk !== 'string' || !chunk.length || chunk.length > CHUNK || transfer.offset + chunk.length > transfer.length || /^(?:image\/png|image\/jpeg)$/.test(transfer.type) && !/^[A-Za-z0-9+/=]+$/.test(chunk)) return false;
     transfer.chunks.push(chunk); transfer.offset += chunk.length; return true;
   }
   function commit(token) {
-    if (!transfer || transfer.token !== token || transfer.status !== 'receiving' || transfer.offset !== transfer.length || !same(transfer.target) || !available(transfer.target, transfer.type)) return false;
+    if (!transfer || transfer.token !== token || transfer.status !== 'receiving' || transfer.offset !== transfer.length || !same(transfer.target) || !available(transfer.target, transfer.type, transfer.handwriting)) return false;
     const current = transfer;
     try {
       if (current.type === 'text/plain') {
         const saved = current.selection, editor = find(current.target.composer).querySelector('textarea');
-        if (editor !== saved.editor || editor.value !== saved.value) throw new Error('输入框内容已变化，请重新点击粘贴');
+        if (editor !== saved.editor || editor.value !== saved.value) throw new Error('输入框内容已变化，请重新点击上传');
         const setter = window.HTMLTextAreaElement && Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
         if (!setter || typeof setter.set !== 'function') throw new Error('当前网页无法接收文字，请刷新后重试');
         const text = current.chunks.join('').replace(/\r\n?/g, '\n');
@@ -159,7 +168,13 @@
     return { status: transfer.status, error: transfer.error || '' };
   }
   function cancel(token) { if (transfer && token && transfer.token !== token) return false; selections = new WeakMap(); transfer = null; install(); return true; }
-  function configure(options) { enabled = !options || options.enabled !== false; if (!enabled) cancel(); else install(); }
+  function configure(options) {
+    const previous = uploadSource, previouslyEnabled = enabled;
+    enabled = !options || options.enabled !== false;
+    if (options && options.source !== undefined) uploadSource = options.source === 'handwriting' ? 'handwriting' : 'clipboard';
+    if (previous !== uploadSource || previouslyEnabled !== enabled) uploadRevision++;
+    if (!enabled || previous !== uploadSource) cancel(); else install();
+  }
   window.__JFJC_REVIEW__ = { context: context, reason: reason, install: install, prepare: prepare, append: append, commit: commit, read: read, cancel: cancel, configure: configure };
   new MutationObserver(function () {
     if (!scheduled) { scheduled = true; window.setTimeout(function () { scheduled = false; if (transfer) read(transfer.token); install(); }, 80); }
