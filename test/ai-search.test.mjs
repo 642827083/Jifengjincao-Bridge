@@ -5,7 +5,7 @@ import { browserHost, nativeHost, source, envelope, packet, tick, reviewPageHTML
 
 function question(id, paperId = 251, number = '7', subject = 'math2') {
   return { ...envelope().questions[0].question, id, subject, question_type: 'blank', stem_latex: '求 $x$ 的值。',
-    papers: [{ id: paperId, title: '2000 年考研数学二真题', question_number: number, year: 2000 }] };
+    papers: [{ id: paperId, title: '2000 年考研数学二真题', kind: 'official', question_number: number, year: 2000 }] };
 }
 function snapshot(b, ids, missing = []) {
   const node = b.document.createElement('div'); node.className = 'search-message-snapshot';
@@ -95,11 +95,14 @@ test('AI 混合原卷科目导入沿用题卡结构、离线图片、原卷排�
   const first = question(5395, 251, '7'), second = question(5434, 253, '1', 'math1');
   first.assets = [{ id: 369, usage: 'stem', asset_type: 'image', url: '/api/question-assets/369' }];
   second.papers[0].title = '2002 年考研数学一真题';
+  second.papers[0].kind = 'mock';
   const b = search([first, second]); snapshot(b, [first.id, second.id]); const h = connect(b);
   let result = await selected(b, h); assert.equal(result.created, 2); assert.equal(result.failed.length, 0);
   const cards = Array.from(h.notes.values()).filter(n => n.comments.some(c => c.text.includes('JFJC_QUESTION:')));
   assert.ok(cards.some(n => n.noteTitle === '2000 年考研数学二真题 · 第 7 题'));
   assert.ok(cards.some(n => n.noteTitle === '2002 年考研数学一真题 · 第 1 题'));
+  assert.equal(cards.find(n => n.comments[1].text.includes('JFJC_QUESTION:253:5434')).parentNote.parentNote.noteTitle, '模拟卷');
+  assert.equal(cards.find(n => n.comments[1].text.includes('JFJC_QUESTION:251:5395')).parentNote.parentNote.noteTitle, '历年真题');
   const note = cards.find(n => n.comments[1].text.includes('JFJC_QUESTION:251:5395'));
   assert.doesNotMatch(note.comments[1].text, /JFJC_ORDER:|JFJC_SOURCE:/); assert.ok(note.mediaList); assert.equal(note.childNotes.length, 1);
   assert.equal(note.comments.length, 2); assert.doesNotMatch(note.comments[0].text, /<!--|查看原题/);
@@ -108,7 +111,7 @@ test('AI 混合原卷科目导入沿用题卡结构、离线图片、原卷排�
 });
 
 test('AI 分次收集解答、填空与选择题，后导入的题卡直接追加到试卷末尾', () => {
-  const h = nativeHost(), paper = { id: 251, subject: 'math2', title: '2000 年考研数学二真题' };
+  const h = nativeHost(), paper = { id: 251, subject: 'math2', kind: 'official', title: '2000 年考研数学二真题' };
   function add(id, number, type, ai) {
     const row = { question: { ...question(id), question_type: type }, sourcePaper: paper,
       question_number: String(number), display_order: number,
@@ -208,7 +211,7 @@ test('网页实际单题命令保留快照身份，原生执行完成后按钮�
 
 test('导入本题支持原试卷与复盘入口，选择当前来源卷，保留离线图片且不下载原卷', async () => {
   for (const route of ['/papers/237', '/questions/5395', '/assistant/conversations/chat-42/review']) {
-    const q = question(5395); q.papers.push({ id: 237, title: '当前模拟卷', question_number: '2' });
+    const q = question(5395); q.papers.push({ id: 237, title: '当前模拟卷', kind: 'mock', question_number: '2' });
     q.assets = [{ id: 369, usage: 'stem', asset_type: 'image', url: '/api/question-assets/369' }];
     const b = search([q]); b.location.pathname = route;
     b.document.body.innerHTML = route.endsWith('/review') ? reviewPageHTML(5395, 29894) : '<article id="question-5395"><div class="question-card-meta-line">第 02 题</div></article>';

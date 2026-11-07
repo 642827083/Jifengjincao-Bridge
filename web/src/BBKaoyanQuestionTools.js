@@ -2,7 +2,7 @@
   if (window.location.origin !== 'https://bbkaoyan.cn') return;
   if (window.__JFJC_QUESTION_TOOLS__) { window.__JFJC_QUESTION_TOOLS__.refresh(); return; }
   let enabled = false, importEnabled = false, pending = null, timer = null, expiry = null, sequence = 0;
-  const reviewSnapshots = new WeakMap(); let reviewSequence = 0;
+  const reviewSnapshots = new WeakMap(), solveSnapshots = new WeakMap(); let reviewSequence = 0, solveSequence = 0;
   function positive(value) { const n = Number(value); return Number.isSafeInteger(n) && n > 0 ? n : 0; }
   function route() { return window.location.pathname + window.location.search; }
   function reviewTarget(host) {
@@ -52,6 +52,26 @@
     return result;
   }
   function same(a, b) { return a && b && a.paperId === b.paperId && a.questionId === b.questionId && a.route === b.route && a.snapshot === b.snapshot; }
+  function uploadContext(form) {
+    const pane = form.closest('.review-chat-pane'), heading = pane && pane.querySelector('.review-chat-heading');
+    if (pane && pane.closest('.review-workspace-grid')) {
+      const target = heading && reviewTarget(heading);
+      return { question: target || null, questionPending: !target };
+    }
+    const solve = form.closest('.solve-conversation-page');
+    if (solve && solve.getAttribute('aria-label') === '本题 AI 解题') {
+      const titles = solve.querySelectorAll('.solve-thread-header .solve-thread-title'), title = titles.length === 1 && titles[0];
+      const match = title && /^正在讨论[：:]\s*#([1-9]\d*)$/.exec(title.textContent.trim());
+      const id = positive(match && match[1]);
+      if (!id) { solveSnapshots.delete(solve); return { question: null, questionPending: true }; }
+      let snapshot = solveSnapshots.get(solve);
+      if (!snapshot || snapshot.title !== title || snapshot.id !== id) {
+        snapshot = { title: title, id: id, key: 'solve-' + (++solveSequence) }; solveSnapshots.set(solve, snapshot);
+      }
+      return { question: { paperId: 0, questionId: id, route: route(), snapshot: snapshot.key }, questionPending: false };
+    }
+    return { question: null, questionPending: false };
+  }
   function native(command, token, target) {
     const frame = document.createElement('iframe'); frame.hidden = true;
     frame.src = 'jifengjincaobridge://' + command + '?token=' + encodeURIComponent(token) + '&scope=' + encodeURIComponent(target ? JSON.stringify(target) : '');
@@ -106,5 +126,5 @@
   function schedule() { if (timer !== null) return; timer = window.setTimeout(function () { timer = null; refresh(); }, 50); }
   new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-label', 'aria-busy'] });
   window.addEventListener('popstate', schedule); window.addEventListener('hashchange', schedule);
-  window.__JFJC_QUESTION_TOOLS__ = { configure: configure, refresh: refresh, matches: matches, matchesSingle: matchesSingle, finish: finish, finishSingle: finish };
+  window.__JFJC_QUESTION_TOOLS__ = { configure: configure, refresh: refresh, matches: matches, matchesSingle: matchesSingle, finish: finish, finishSingle: finish, uploadContext: uploadContext };
 })();

@@ -5,7 +5,7 @@ import { browserHost, nativeHost, source, envelope, tick, reviewPageHTML } from 
 
 function review(t, responseFor) {
   const question = { ...envelope().questions[0].question, id: 5684, subject: 'math2', question_type: 'solution',
-    papers: [{ id: 263, title: '2012 年考研数学二真题', question_number: '23', year: 2012 }], assets: [] };
+    papers: [{ id: 263, title: '2012 年考研数学二真题', kind: 'official', question_number: '23', year: 2012 }], assets: [] };
   const b = browserHost(undefined, async (url, options) => {
     if (responseFor) { const result = await responseFor(url, options); if (result) return result; }
     return new Response(JSON.stringify(url.endsWith('/api/questions/5684') ? question : { detail: 'Question not found' }), {

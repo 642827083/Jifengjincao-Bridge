@@ -56,12 +56,17 @@ try {
     if ($styleSource -cne $sourceCss) { throw 'Dialog style does not match web source' }
     if ($embeddedSource -cne ($dialogStyle + "`n" + $headerSource + "`n" + $layoutSource + "`n" + $selectionSource + "`n" + $pageSource + "`n" + $reviewSource + "`n" + $questionToolsSource)) { throw 'Embedded script does not match web source' }
     $webResources = @($resourceNames | Where-Object { $_.StartsWith('web-dist/') })
-    if ($webResources.Count -ne 3 -or $webResources -notcontains 'web-dist/BBKaoyanPageScript.js' -or $webResources -notcontains 'web-dist/ImportPageResource.js' -or $webResources -notcontains 'web-dist/HandwritingPage.html') { throw 'Unexpected web resources in package' }
+    if ($webResources.Count -ne 4 -or $webResources -notcontains 'web-dist/BBKaoyanPageScript.js' -or $webResources -notcontains 'web-dist/ImportPageResource.js' -or $webResources -notcontains 'web-dist/HandwritingPage.html' -or $webResources -notcontains 'web-dist/ExtraTextPageResource.js') { throw 'Unexpected web resources in package' }
     $inkHtml = Read-EntryText 'web-dist/HandwritingPage.html'
     if ($packedMetadata.panel -cne 'web-dist/HandwritingPage.html') { throw 'Official handwriting panel is not declared' }
     $inkBridge = (Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/lib/mnBridge.js') -Raw -Encoding UTF8).Replace('export default MNBridge;', '')
     $inkScript = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/HandwritingPage.js') -Raw -Encoding UTF8
-    if ($inkHtml -cne ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><p id="status" style="font:14px system-ui;padding:12px">正在读取所选卡片手写…</p><script>' + $inkBridge + "`n" + $inkScript + '</script></body></html>')) { throw 'Handwriting helper does not match web source' }
+    if ($inkHtml -cne ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><p id="status" style="font:14px system-ui;padding:12px">正在读取卡片手写…</p><script>' + $inkBridge + "`n" + $inkScript + '</script></body></html>')) { throw 'Handwriting helper does not match web source' }
+    $extraResource = Read-EntryText 'web-dist/ExtraTextPageResource.js'
+    $extraHtml = ($extraResource -replace '^var __JFJC_EXTRA_TEXT_HTML__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
+    $extraTemplate = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ExtraTextPage.html') -Raw -Encoding UTF8
+    $extraScript = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ExtraTextPage.js') -Raw -Encoding UTF8
+    if ($extraHtml -cne $extraTemplate.Replace('/* 附加文字脚本 */', ($inkBridge + "`n" + $extraScript))) { throw 'Extra text page does not match web source' }
     $importResource = Read-EntryText 'web-dist/ImportPageResource.js'
     $importHtml = ($importResource -replace '^var __JFJC_IMPORT_HTML__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $importTemplate = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ImportPage.html') -Raw -Encoding UTF8

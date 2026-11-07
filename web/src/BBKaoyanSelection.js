@@ -41,7 +41,7 @@
     const papers = (Array.isArray(question.papers) ? question.papers : []).filter(function (paper) { return Number.isSafeInteger(paper.id) && paper.id > 0 && typeof paper.title === 'string' && paper.title.trim(); });
     const source = papers.find(function (paper) { return paper.id === requestedPaper; }) || papers[0];
     if (requestedPaper > 0 && (!source || source.id !== requestedPaper)) throw new Error('网站题目不属于当前试卷，请刷新后重试');
-    const paper = source ? { id: source.id, title: source.title, subject: question.subject, year: source.year || null } : { id: 0, title: String(question.source || '').trim() || '单题收集', subject: question.subject };
+    const paper = source ? { id: source.id, title: source.title, subject: question.subject, kind: source.kind, year: source.year || null } : { id: 0, title: String(question.source || '').trim() || '单题收集', subject: question.subject };
     const number = source && String(source.question_number || '').trim() || String(question.id);
     return { sourcePaper: paper, question: question, question_number: number, display_order: order,
       section_title: { choice: '一、选择题', blank: '二、填空题', solution: '三、解答题' }[question.question_type] || '' };

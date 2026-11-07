@@ -6,7 +6,7 @@ import { pageScriptSource } from '../scripts/web-bundle.mjs';
 
 function question(id, paperId = 251, number = '7', subject = 'math2') {
   return { ...envelope().questions[0].question, id, subject,
-    papers: [{ id: paperId, title: '来源试卷 ' + paperId, question_number: number }] };
+    papers: [{ id: paperId, title: '来源试卷 ' + paperId, kind: 'official', question_number: number }] };
 }
 function basket(questions, responseFor, pathname = '/baskets/42') {
   const b = browserHost(undefined, async (url, options) => {
@@ -70,7 +70,8 @@ test('私人和公开题篮均在全局题号后显示工具，独立开关不�
 });
 
 test('题篮批量默认全选，混合来源保留原卷与题号，实际建卡和重复导入一致', async () => {
-  const qs = [question(5395), question(5434, 253, '1', 'math1')], b = basket(qs), h = connect(b);
+  const qs = [question(5395), question(5434, 253, '1', 'math1')]; qs[1].papers[0].kind = 'mock';
+  const b = basket(qs), h = connect(b);
   for (let attempt = 0; attempt < 2; attempt++) {
     await b.runtime.open('selected', { token: 'test-task', target: '学习集', content: 'questionAnswer' });
     assert.ok(Array.from(b.document.querySelectorAll('input[data-id]')).every(i => i.checked));
@@ -81,6 +82,8 @@ test('题篮批量默认全选，混合来源保留原卷与题号，实际建�
   }
   const cards = [...h.notes.values()].filter(n => n.comments.some(c => c.text.includes('JFJC_QUESTION:')));
   assert.equal(cards.length, 2);
+  assert.equal(cards.find(n => n.comments[1].text.includes('JFJC_QUESTION:251:5395')).parentNote.parentNote.noteTitle, '历年真题');
+  assert.equal(cards.find(n => n.comments[1].text.includes('JFJC_QUESTION:253:5434')).parentNote.parentNote.noteTitle, '模拟卷');
   assert.ok(cards.some(n => n.noteTitle === '来源试卷 251 · 第 7 题' && n.comments[1].text.includes('JFJC_QUESTION:251:5395')));
   assert.ok(cards.some(n => n.noteTitle === '来源试卷 253 · 第 1 题' && n.comments[1].text.includes('JFJC_QUESTION:253:5434')));
   assert.ok(b.calls.every(call => call.options.credentials === 'include'));

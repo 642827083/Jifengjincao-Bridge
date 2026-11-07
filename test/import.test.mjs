@@ -4,6 +4,93 @@ import { nativeHost, envelope } from './helpers.mjs';
 
 function prepared(h, entry, paper, q = true, answer = true) { return h.format.format(entry, paper, { images: { 369: 'data:image/png;base64,aGVsbG8=' }, inlineImages: {} }, q, answer); }
 
+test('数学一二三的新试卷按类型分层，同名真题和模拟卷不混用目录，分次导入复用原目录', () => {
+  const h = nativeHost(), context = h.native.context({ window: {} });
+  let id = 1000;
+  for (const subject of ['math1', 'math2', 'math3']) for (const kind of ['official', 'mock']) {
+    const data = envelope();
+    Object.assign(data.paper, { id: ++id, subject, kind, title: '同名试卷' });
+    data.questions.forEach(row => { row.question.subject = subject; });
+    const model = h.adapter.normalize(data), [first, second] = model.entries;
+    const note = h.importer.write(context, model.paper, first, prepared(h, first, model.paper), null, true).note;
+    const paper = note.parentNote, category = paper.parentNote, subjectCard = category.parentNote;
+    assert.equal(category.noteTitle, kind === 'official' ? '历年真题' : '模拟卷');
+    assert.equal(subjectCard.noteTitle, h.adapter.subjects[subject]);
+    assert.equal(subjectCard.parentNote.noteTitle, 'Jifengjincao Bridge');
+    assert.equal(h.native.has(category, 'KIND:' + subject + ':' + kind), true);
+    paper.noteTitle = '用户重命名的试卷';
+    const added = h.importer.write(context, model.paper, second, prepared(h, second, model.paper), null, true).note;
+    assert.equal(added.parentNote, paper); assert.deepEqual(paper.childNotes, [note, added]);
+    const count = h.notes.size, existing = h.importer.index(context)[model.paper.id + ':' + first.id];
+    h.importer.write(context, model.paper, first, prepared(h, first, model.paper), existing, true);
+    assert.equal(h.notes.size, count); assert.equal(paper.noteTitle, '用户重命名的试卷');
+  }
+  const root = [...h.notes.values()].find(note => h.native.has(note, 'ROOT:1'));
+  assert.equal(root.childNotes.length, 3);
+  root.childNotes.forEach(subject => assert.deepEqual(subject.childNotes.map(note => note.noteTitle), ['历年真题', '模拟卷']));
+});
+
+test('旧试卷不自动移动；追加题卡、补答案及新试卷分类均保留旧目录、笔记和手写', () => {
+  for (const kind of ['official', 'mock']) {
+    const h = nativeHost(), data = envelope(); data.paper.kind = kind;
+    const model = h.adapter.normalize(data), context = h.native.context({ window: {} });
+    function node(title, marker, parent) {
+      const note = h.database.createNoteWithTitleTopicid(title, 'book-1');
+      h.native.append(note, '<!-- JFJC_' + marker + ' -->');
+      if (parent) h.native.add(parent, note);
+      return note;
+    }
+    const root = node('Jifengjincao Bridge', 'ROOT:1'), subject = node('数学一', 'SUBJECT:math1', root);
+    const oldPaper = node('我的旧试卷', 'PAPER:237', subject);
+    oldPaper.comments.push({ text: '原卷笔记' }, { type: 'PaintNote', drawing: '笔迹' });
+    const before = JSON.stringify(oldPaper.comments);
+    const [first, second] = model.entries;
+    const existing = h.importer.write(context, model.paper, first, prepared(h, first, model.paper, true, false), null, false).note;
+    existing.comments.push({ text: '我的思路' });
+    const added = h.importer.write(context, model.paper, second, prepared(h, second, model.paper), null, true).note;
+    h.importer.write(context, model.paper, first, prepared(h, first, model.paper, false, true), existing, true);
+    assert.equal(existing.parentNote, oldPaper); assert.equal(added.parentNote, oldPaper);
+    assert.equal(oldPaper.parentNote, subject); assert.equal(subject.childNotes.length, 1);
+    assert.equal(JSON.stringify(oldPaper.comments), before); assert.equal(existing.comments.at(-1).text, '我的思路');
+    assert.equal(existing.childNotes[0].noteTitle, '答案与解析');
+    const nextPaper = { ...model.paper, id: 238 };
+    const next = h.importer.write(context, nextPaper, first, prepared(h, first, nextPaper), null, true).note;
+    assert.equal(next.parentNote.parentNote.noteTitle, kind === 'official' ? '历年真题' : '模拟卷');
+    assert.equal(next.parentNote.parentNote.parentNote, subject); assert.equal(oldPaper.parentNote, subject);
+    assert.equal([...h.notes.values()].filter(note => h.native.has(note, 'PAPER:237')).length, 1);
+  }
+});
+
+test('没有来源试卷的单题收集保留原层级，未知试卷类型不猜测为真题', () => {
+  const h = nativeHost(), context = h.native.context({ window: {} });
+  for (const subject of ['math1', 'math2', 'math3']) {
+    const data = envelope(); Object.assign(data.paper, { id: 0, title: '单题收集', subject }); delete data.paper.kind;
+    data.questions.forEach(row => { row.question.subject = subject; });
+    const model = h.adapter.normalize(data), entry = model.entries[0];
+    const note = h.importer.write(context, model.paper, entry, prepared(h, entry, model.paper), null, false).note;
+    assert.equal(note.parentNote.noteTitle, '单题收集'); assert.equal(note.parentNote.parentNote.noteTitle, h.adapter.subjects[subject]);
+  }
+  for (const kind of [undefined, '', 'unknown']) {
+    const data = envelope(); data.paper.kind = kind;
+    assert.throws(() => h.adapter.normalize(data), /试卷类型/);
+    const sourcePaper = { ...data.paper };
+    data.paper = { id: 0, title: '题篮', subject: 'math1' }; data.collection = 'basket';
+    data.questions.forEach(row => { row.sourcePaper = sourcePaper; });
+    assert.throws(() => h.adapter.normalize(data), /试卷类型/);
+  }
+  assert.equal([...h.notes.values()].some(note => h.native.comments(note).some(text => text.includes('JFJC_KIND:'))), false);
+});
+
+test('已有多个同身份试卷目录时明确失败，不猜测目录或再建一份', () => {
+  const h = nativeHost(), model = h.adapter.normalize(envelope()), context = h.native.context({ window: {} });
+  for (let i = 0; i < 2; i++) {
+    const note = h.database.createNoteWithTitleTopicid('旧目录', 'book-1'); h.native.append(note, '<!-- JFJC_PAPER:237 -->');
+  }
+  const before = h.notes.size, entry = model.entries[0];
+  assert.throws(() => h.importer.write(context, model.paper, entry, prepared(h, entry, model.paper), null, true), /多张相同试卷目录/);
+  assert.equal(h.notes.size, before);
+});
+
 test('题干与选项图片离线保存，第一条无注释，第二条始终为原题链接和完整身份', () => {
   for (const includeTopics of [true, false]) {
     const h = nativeHost(), model = h.adapter.normalize(envelope()), entry = model.entries[0];

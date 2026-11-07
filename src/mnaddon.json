@@ -2,7 +2,7 @@
   "addonid": "cn.marginnote.jifengjincao-bridge",
   "author": "乔木Joe",
   "title": "Jifengjincao Bridge",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "marginnote_version_min": "4.4.5",
   "panel": "web-dist/HandwritingPage.html",
   "cert_key": ""

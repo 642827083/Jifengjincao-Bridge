@@ -117,7 +117,7 @@ var __JFJC_CARD_LOCATOR__ = (function () {
     return path.join(" / ");
   }
 
-  async function scanStudySet(operation, notebook) {
+  async function scanStudySet(database, target, notebook, check, pause) {
     if (!notebook) return [];
     const notebookId = String(value(notebook, "topicId") || "");
     if (!notebookId) return [];
@@ -126,21 +126,53 @@ var __JFJC_CARD_LOCATOR__ = (function () {
     const candidates = [];
     let inspected = 0;
     while (pending.length) {
-      ensureActive(operation);
-      const snapshot = pending.pop(), note = operation.database.getNoteById(String(value(snapshot, 'noteId') || ''));
+      check();
+      const snapshot = pending.pop(), note = database.getNoteById(String(value(snapshot, 'noteId') || ''));
       const id = String(value(note, "noteId") || "");
       if (!id || seen.has(id)) continue;
       seen.add(id);
       const link = identity(note);
-      if (link && link.questionId === operation.target.questionId && String(value(note, 'notebookId') || notebookId) === notebookId) {
-        candidates.push({ noteId: id, notebookId, sourcePaperId: link.paperId, studySetTitle: String(value(notebook, "title") || "未命名学习集"),
+      if (link && link.questionId === target.questionId && String(value(note, 'notebookId') || notebookId) === notebookId) {
+        candidates.push({ noteId: id, notebookId, questionId: link.questionId, sourcePaperId: link.paperId, studySetTitle: String(value(notebook, "title") || "未命名学习集"),
           title: String(value(note, "noteTitle") || "未命名卡片"), path: cardPath(note) });
       }
       items(value(note, 'childNotes')).reverse().forEach(function (child) { pending.push(child); });
       // 大学习集分批扫描，让主线程有机会响应；不把网页或缓存当成题卡真源。
-      if (++inspected % 150 === 0) await delay(operation, 0.001);
+      if (++inspected % 150 === 0) await pause();
     }
     return candidates;
+  }
+
+  async function findCandidates(database, currentId, target, check, pause) {
+    let candidates = await scanStudySet(database, target, currentId && database.getNotebookById(currentId), check, pause);
+    if (!candidates.length) {
+      if (typeof database.allNotebooks !== 'function') throw new Error('当前 MarginNote 版本不支持跨学习集查找');
+      const seenBooks = new Set([currentId]), notebooks = items(database.allNotebooks());
+      for (let index = 0; index < notebooks.length; index += 1) {
+        check();
+        const id = String(value(notebooks[index], 'topicId') || '');
+        if (!id || seenBooks.has(id)) continue;
+        seenBooks.add(id);
+        candidates = candidates.concat(await scanStudySet(database, target, notebooks[index], check, pause));
+      }
+    }
+    check();
+    // 同题可在多份试卷中出现；当前学习集内优先使用原卷身份，单题导入也能找到。
+    const exact = target.paperId && candidates.filter(function (item) { return item.sourcePaperId === target.paperId; });
+    return exact && exact.length ? exact : candidates;
+  }
+
+  async function find(addon, target, validate) {
+    if (!target || !Number.isSafeInteger(target.questionId) || target.questionId < 1 || !Number.isSafeInteger(target.paperId) || target.paperId < 0) throw new Error('题目标识无效');
+    const currentId = studySetId(studyFor(addon)), deadline = Date.now() + 30000;
+    function check() {
+      validate();
+      if (studySetId(studyFor(addon)) !== currentId) throw new Error('学习集已切换，查找题卡已停止');
+      if (Date.now() > deadline) throw new Error('查找题卡超时，请稍后重试');
+    }
+    check();
+    // 上传仅复用查找，不进入定位流程，不选卡、不切换学习集。
+    return findCandidates(Database.sharedInstance(), currentId, target, check, function () { return N.delay(0.001); });
   }
 
   function checkedNote(operation, candidate) {
@@ -161,23 +193,9 @@ var __JFJC_CARD_LOCATOR__ = (function () {
     operation.initialBook = currentId;
     const database = operation.database;
     phase(operation, "search", 30, "查找学习集题卡超时，请稍后重试");
-    let candidates = await scanStudySet(operation, currentId && database.getNotebookById(currentId));
-    if (!candidates.length) {
-      if (typeof database.allNotebooks !== "function") throw new Error("当前 MarginNote 版本不支持跨学习集查找");
-      const seenBooks = new Set([currentId]);
-      const notebooks = items(database.allNotebooks());
-      for (let index = 0; index < notebooks.length; index += 1) {
-        const id = String(value(notebooks[index], "topicId") || "");
-        if (!id || seenBooks.has(id)) continue;
-        seenBooks.add(id);
-        candidates = candidates.concat(await scanStudySet(operation, notebooks[index]));
-      }
-    }
+    const candidates = await findCandidates(database, currentId, operation.target, function () { ensureActive(operation); }, function () { return delay(operation, 0.001); });
     ensureActive(operation);
     await operation.validate(); ensureActive(operation);
-    // 同题可在多份试卷中出现；当前学习集内优先使用原卷身份，单题导入也能找到。
-    const exact = operation.target.paperId && candidates.filter(function (item) { return item.sourcePaperId === operation.target.paperId; });
-    if (exact && exact.length) candidates = exact;
     if (!candidates.length) throw new Error("所有学习集中都没有这道题的脑图卡片，请先导入或等待同步完成");
     let candidate = candidates[0];
     if (candidates.length > 1) {
@@ -255,5 +273,5 @@ var __JFJC_CARD_LOCATOR__ = (function () {
   }
 
   function switching(addon) { return Boolean(addon && addon.__jfjcCardLocation && addon.__jfjcCardLocation.phase === 'switch'); }
-  return { locate: locate, resume: resume, cancel: cancel, switching: switching, mode: mode, setMode: setMode, identity: identity };
+  return { locate: locate, find: find, resume: resume, cancel: cancel, switching: switching, mode: mode, setMode: setMode, identity: identity };
 })();

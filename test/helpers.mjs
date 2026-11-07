@@ -8,7 +8,7 @@ import { pageScriptSource } from '../scripts/web-bundle.mjs';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const source = file => fs.readFileSync(path.join(root, file), 'utf8');
 export function envelope() {
-  return { paper: { id: 237, subject: 'math1', title: '2026 年数学一真题' }, questions: [
+  return { paper: { id: 237, subject: 'math1', kind: 'official', title: '2026 年数学一真题' }, questions: [
     { question_number: '2', display_order: 2, section_title: '一、选择题', question: { id: 5075, subject: 'math1', question_type: 'choice', stem: '函数 \\(f(x)\\) 的值', options: { A: '$1$', B: '$2$' }, correct_answer: 'A', explanation_latex: '\\[x=1\\]', assets: [] } },
     { question_number: '1', display_order: 1, section_title: '一、选择题', question: { id: 5074, subject: 'math1', question_type: 'choice', stem_latex: '计算 $x^2$。', options: { A: '$0$', B: '$1$' }, correct_answer: 'B', explanation_latex: '$$x=1$$', assets: [{ id: 369, usage: 'explanation', asset_type: 'image', url: '/api/question-assets/369', sort_order: 1 }] } }
   ] };

@@ -8,10 +8,16 @@ var __JFJC_ADAPTER__ = (function () {
   }
   function text(value) { return typeof value === 'string' ? value.trim() : ''; }
   function prefer(a, b) { return text(a) || text(b); }
+  function paperKind(source, id) {
+    if (!id) return '';
+    if (source.kind !== 'official' && source.kind !== 'mock') throw new Error('网站试卷类型缺失或无效，无法区分历年真题和模拟卷');
+    return source.kind;
+  }
   function normalize(envelope) {
     if (!envelope || !envelope.paper || !Array.isArray(envelope.questions)) throw new Error('网站试卷数据格式已变化');
     const source = envelope.paper;
     const paper = { id: integer(source.id, '试卷 ID', true), title: text(source.title), subject: source.subject, year: source.year || null };
+    paper.kind = paperKind(source, paper.id);
     if (!paper.title || !SUBJECTS[paper.subject]) throw new Error('试卷名称或科目缺失');
     if (!envelope.questions.length || envelope.questions.length > 500) throw new Error('请选择包含 1 至 500 道题目的试卷');
     const seen = {};
@@ -21,6 +27,7 @@ var __JFJC_ADAPTER__ = (function () {
       const sourcePaper = collection ? row.sourcePaper : source;
       if (!sourcePaper || !q || !TYPES[q.question_type] || !SUBJECTS[sourcePaper.subject] || q.subject !== sourcePaper.subject) throw new Error('题目类型或科目与试卷不符');
       const entryPaper = { id: integer(sourcePaper.id, '来源试卷 ID', true), title: text(sourcePaper.title), subject: sourcePaper.subject, year: sourcePaper.year || null };
+      entryPaper.kind = paperKind(sourcePaper, entryPaper.id);
       if (!entryPaper.title) throw new Error('来源试卷名称缺失');
       const id = integer(q.id, '题目 ID');
       if (seen[id]) throw new Error('试卷包含重复题目 ID');

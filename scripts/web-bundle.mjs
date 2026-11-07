@@ -21,5 +21,10 @@ export function importPageHTML() {
 export function handwritingPageHTML() {
   const bridge = fs.readFileSync(path.join(root, 'web/src/lib/mnBridge.js'), 'utf8').replace('export default MNBridge;', '');
   const script = fs.readFileSync(path.join(root, 'web/src/HandwritingPage.js'), 'utf8');
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><p id="status" style="font:14px system-ui;padding:12px">正在读取所选卡片手写…</p><script>' + bridge + '\n' + script + '</script></body></html>';
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><p id="status" style="font:14px system-ui;padding:12px">正在读取卡片手写…</p><script>' + bridge + '\n' + script + '</script></body></html>';
+}
+export function extraTextPageHTML() {
+  const bridge = fs.readFileSync(path.join(root, 'web/src/lib/mnBridge.js'), 'utf8').replace('export default MNBridge;', '');
+  const script = fs.readFileSync(path.join(root, 'web/src/ExtraTextPage.js'), 'utf8');
+  return fs.readFileSync(path.join(root, 'web/src/ExtraTextPage.html'), 'utf8').replace('/* 附加文字脚本 */', () => bridge + '\n' + script);
 }

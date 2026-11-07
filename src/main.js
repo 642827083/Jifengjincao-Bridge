@@ -17,6 +17,7 @@ JSB.require('JifengjincaoCardLocator');
 JSB.require('JifengjincaoSingleImport');
 JSB.require('web-dist/BBKaoyanPageScript');
 JSB.require('web-dist/ImportPageResource');
+JSB.require('web-dist/ExtraTextPageResource');
 JSB.require('WebBridgeCommands');
 JSB.require('WebPanelController');
 JSB.require('WebAddon');

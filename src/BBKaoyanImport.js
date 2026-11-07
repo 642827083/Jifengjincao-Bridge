@@ -15,11 +15,22 @@ var __JFJC_IMPORT__ = (function () {
     return { note: answer, answer: answer && N.has(answer, 'PART:answer'), explanation: answer && N.has(answer, 'PART:explanation') };
   }
   function pathFor(context, paper, created) {
+    // 按试卷身份复用旧位置，新增分类不搬动已有试卷，也不创建第二份。
+    if (paper.id > 0) {
+      const existing = N.all(context.notebook).filter(function (note) { return N.has(note, 'PAPER:' + paper.id); });
+      if (existing.length > 1) throw new Error('当前学习集存在多张相同试卷目录，请先整理后重试');
+      if (existing.length) return N.wrap(existing[0]);
+    }
     const descriptors = [
       { title: 'Jifengjincao Bridge', marker: 'ROOT:1' },
-      { title: __JFJC_ADAPTER__.subjects[paper.subject], marker: 'SUBJECT:' + paper.subject },
-      { title: paper.title, marker: 'PAPER:' + paper.id }
+      { title: __JFJC_ADAPTER__.subjects[paper.subject], marker: 'SUBJECT:' + paper.subject }
     ];
+    if (paper.id > 0) {
+      const title = { official: '历年真题', mock: '模拟卷' }[paper.kind];
+      if (!title) throw new Error('试卷类型无效，无法确定导入分类');
+      descriptors.push({ title: title, marker: 'KIND:' + paper.subject + ':' + paper.kind });
+    }
+    descriptors.push({ title: paper.title, marker: 'PAPER:' + paper.id });
     let parent = null;
     descriptors.forEach(function (d) {
       const candidates = parent ? N.children(parent) : N.all(context.notebook);

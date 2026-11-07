@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { parseHTML } from 'linkedom';
 import { nativeHost, source, tick } from './helpers.mjs';
+import { extraTextPageHTML } from '../scripts/web-bundle.mjs';
 
 test('题卡工具的折叠开关独立保存，管理菜单可取消且只列折叠与展开', async () => {
   const h = mountedPanel(), c = h.controller;
@@ -66,7 +68,7 @@ function panel() {
   vm.runInContext(source('src/WebPanelController.js'),h.context);
   return {...h,panel:h.context.__JFJC_PANEL__,methods:classes['JifengjincaoBridgePanelController : UIViewController <UIWebViewDelegate>']};
 }
-function mountedPanel() {
+function mountedPanel(options = {}) {
   const h = panel();
   class View {
     constructor(frame) {
@@ -76,6 +78,8 @@ function mountedPanel() {
         removeAnimationForKey(key) { this.animations.delete(key); },
         presentationLayer() { return this.presentation; } };
     }
+    get frame() { return this.currentFrame; }
+    set frame(frame) { this.currentFrame = frame; if (options.onFrameChange) options.onFrameChange(h, this); }
     get bounds() { return { x: 0, y: 0, width: this.frame.width, height: this.frame.height }; }
     addSubview(view) { this.subviews.push(view); view.superview = this; }
     removeFromSuperview() { if (this.superview) this.superview.subviews = this.superview.subviews.filter(view => view !== this); this.superview = null; }
@@ -90,15 +94,49 @@ function mountedPanel() {
   class WebView extends View {
     constructor(frame) { super(frame); this.requests = []; this.scripts = []; }
     loadRequest(request) { this.requests.push(request); }
-    loadHTMLStringBaseURL(html, base) { this.html = html; this.base = base; }
+    loadHTMLStringBaseURL(html, base) {
+      this.html = html; this.base = base;
+      if (html.includes('id="extra-text"')) {
+        if (options.onExtraEditorCreate) options.onExtraEditorCreate(h);
+        const parsed = parseHTML(html), owner = h.context.self, web = this;
+        this.editorDocument = parsed.document;
+        this.editorEvent = parsed.window.Event;
+        this.editorDocument.querySelector('textarea').blur = () => { this.blurred = true; };
+        const window = options.editorIframeBridge ? { setTimeout, clearTimeout } : { mn: { call(command, payload) { return h.context.__JFJC_WEB_COMMANDS__.dispatch(owner, command, payload, web); } } };
+        if (options.editorIframeBridge) {
+          this.bridgeAddresses = [];
+          const append = parsed.document.body.appendChild.bind(parsed.document.body);
+          parsed.document.body.appendChild = node => {
+            const result = append(node);
+            if (node.tagName === 'IFRAME') {
+              this.bridgeAddresses.push(node.src);
+              h.methods.webViewShouldStartLoadWithRequestNavigationType(web, { URL: { absoluteString: node.src } }, 0);
+            }
+            return result;
+          };
+        }
+        this.editorContext = vm.createContext({ window, document: parsed.document });
+        vm.runInContext(html.match(/<script>([\s\S]*)<\/script>/)[1], this.editorContext);
+      }
+    }
     evaluateJavaScript(code, callback) {
       this.scripts.push(code);
+      if (this.editorContext) {
+        try { callback(vm.runInContext(code, this.editorContext), null); } catch (error) { callback(null, error); }
+        return;
+      }
       if (code.includes('__JFJC_READINESS__')) return callback(JSON.stringify({ origin: 'https://bbkaoyan.cn', route: '/papers/237', ready: 'complete', content: true }), null);
       callback(code.includes('JSON.stringify(window.__JFJC_PAGE__.context())') ? '{"paperId":237}' : 'injected', null);
     }
   }
+  class TextView extends View {
+    constructor(frame) {
+      super(frame);
+      if (options.onTextViewCreate) options.onTextViewCreate(h);
+    }
+  }
   Object.assign(h.context, {
-    UIView: View, UILabel: View, UIScrollView: View, UIButton: Button, UISwitch: Button, UIWebView: WebView,
+    UIView: View, UILabel: View, UIScrollView: View, UIButton: Button, UISwitch: Button, UIWebView: WebView, UITextView: TextView,
     UIPanGestureRecognizer: class { constructor(target, action) { Object.assign(this, { target, action }); } },
     UITapGestureRecognizer: class {
       constructor(target, action) { Object.assign(this, { target, action }); }
@@ -106,6 +144,7 @@ function mountedPanel() {
     },
     __JFJC_PAGE_SCRIPT__: '',
     __JFJC_IMPORT_HTML__: '<html>导入页面</html>',
+    __JFJC_EXTRA_TEXT_HTML__: extraTextPageHTML(),
     UIFont: { systemFontOfSize: size => ({ size }), boldSystemFontOfSize: size => ({ size, bold: true }) },
     UIColor: { whiteColor: () => 'white', grayColor: () => 'gray', darkGrayColor: () => 'darkgray', lightGrayColor: () => 'lightgray',
       colorWithWhiteAlpha: (white, alpha) => ({ white, alpha }), colorWithRedGreenBlueAlpha: (red, green, blue, alpha) => ({ red, green, blue, alpha }) },
@@ -114,6 +153,81 @@ function mountedPanel() {
   const controller = { addon: { window: {} } }; h.context.self = controller; h.methods.viewDidLoad();
   return { ...h, controller };
 }
+function typeExtra(controller, text) {
+  const web = controller.extraTextEditor, input = web.editorDocument.querySelector('textarea');
+  input.value = text; input.dispatchEvent(new web.editorEvent('input')); return input;
+}
+function extraValue(controller) { return controller.extraTextEditor.editorDocument.querySelector('textarea').value; }
+
+test('创建附加文字输入框时同步触发布局，不中断设置导航、缩放角和数学页加载', async () => {
+  let reentered = false;
+  const h = mountedPanel({ onExtraEditorCreate(host) { reentered = true; host.methods.viewDidLayoutSubviews(); } });
+  await tick();
+  const c = h.controller;
+  assert.equal(reentered, true); assert.ok(c.extraTextHint); assert.ok(c.extraTextSaveButton);
+  assert.ok(c.extraTextEditor); assert.equal(c.extraTextEditor.editorDocument.querySelector('textarea').disabled, false); assert.equal(c.extraTextSaveButton.enabled, true);
+  assert.ok(c.settingsHeader); assert.equal(c.settingsNavigationButtons.length, 3);
+  assert.equal(c.resizeHandle.text, '◢'); assert.equal(c.resizeHandle.superview, c.view);
+  assert.equal(c.resizeHandle.gestures[0].action, 'resizePanel:');
+  assert.equal(c.webView.requests.length, 1); assert.equal(c.activePage, 'math');
+  c.view.frame = { x: 0, y: 0, width: 980, height: 680 }; h.methods.viewDidLayoutSubviews();
+  assert.equal(c.resizeHandle.frame.x, 954); assert.equal(c.resizeHandle.frame.y, 654);
+});
+
+test('原生 frame 赋值再次触发布局时，创建与正常缩放均不会递归或访问半成品控件', () => {
+  let callbacks = 0;
+  const h = mountedPanel({ onFrameChange(host) {
+    if (host.context.self && host.context.self.webView) { callbacks++; host.methods.viewDidLayoutSubviews(); }
+  } });
+  const c = h.controller; assert.ok(callbacks > 20); assert.ok(c.extraTextEditor);
+  assert.equal(c.panelReady, true); assert.equal(c.panelLayingOut, false);
+  c.view.frame = { x: 0, y: 0, width: 600, height: 500 };
+  h.methods.viewDidLayoutSubviews();
+  assert.equal(c.resizeHandle.frame.x, 574); assert.equal(c.resizeHandle.frame.y, 474);
+  assert.equal(c.webView.frame.width, 600); assert.equal(c.settingsHeader.frame.width, 600);
+});
+
+test('可选文字编辑器创建异常时保留设置胶囊、数学页、关闭、拖动和右下角缩放', () => {
+  const h = mountedPanel({ onExtraEditorCreate() { throw new Error('模拟本地编辑页加载失败'); } }), c = h.controller;
+  assert.equal(c.panelReady, true); assert.equal(c.settingsReady, true);
+  assert.equal(c.extraTextEditor, null); assert.equal(c.extraTextSaveButton.enabled, false);
+  assert.match(c.extraTextHint.text, /加载失败/); assert.equal(c.webView.requests.length, 1);
+  assert.equal(c.closeButton.action, 'closePanel:'); assert.equal(c.resizeHandle.gestures[0].action, 'resizePanel:');
+  h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]); h.methods.viewDidLayoutSubviews();
+  assert.equal(c.aiToolsSection.hidden, false); assert.equal(c.settingsHeader.hidden, false);
+  h.methods.openMath(); assert.equal(c.webView.hidden, false);
+  const parent = new h.context.UIView({ x: 0, y: 0, width: 1024, height: 800 }); parent.addSubview(c.view);
+  h.methods.resizePanel({ state: 2, translationInView: () => ({ x: -100, y: -80 }), setTranslationInView() {} });
+  assert.equal(c.view.frame.width, 880); assert.equal(c.view.frame.height, 600);
+  assert.equal(c.resizeHandle.frame.x, 854); assert.equal(c.resizeHandle.frame.y, 574);
+});
+
+test('UITextView 不可构造时仍提供可编辑的附加文字输入框', () => {
+  const h = mountedPanel({ onTextViewCreate() { throw new Error('UITextView 不可构造'); } }), c = h.controller;
+  assert.ok(c.extraTextEditor);
+  assert.equal(typeof c.extraTextEditor.loadHTMLStringBaseURL, 'function');
+  assert.match(c.extraTextEditor.html, /textarea/);
+  assert.equal(c.panelReady, true); assert.equal(c.resizeHandle.superview, c.view);
+});
+
+test('设置初始化中断后的半成品面板再次打开会重建，而非因为存在 webView 就跳过', () => {
+  const h = mountedPanel(), c = { addon: h.controller.addon }, settings = h.context.__JFJC_SETTINGS__, setup = settings.setup;
+  let fail = true; settings.setup = controller => { setup(controller); if (fail) { fail = false; throw new Error('模拟初始化中断'); } };
+  h.context.self = c;
+  assert.throws(() => h.methods.viewDidLoad(), /初始化中断/);
+  const oldView = c.view; assert.ok(c.webView); assert.equal(c.panelReady, false); assert.equal(c.resizeHandle, undefined);
+  const parent = new h.context.UIView({ x: 0, y: 0, width: 1024, height: 800 });
+  h.context.Application.sharedInstance = () => ({ studyController: () => ({ view: parent, refreshAddonCommands() {} }) });
+  h.panel.show(c);
+  assert.notEqual(c.view, oldView); assert.equal(c.view.superview, parent); assert.equal(c.panelReady, true);
+  assert.equal(c.settingsNavigationButtons.length, 3); assert.ok(c.extraTextEditor);
+  assert.equal(c.resizeHandle.superview, c.view); assert.equal(c.webView.requests.length, 1);
+  const rebuilt = c.view;
+  delete c.panelReady; c.settingsReady = false; c.resizeHandle = null;
+  h.panel.show(c);
+  assert.notEqual(c.view, rebuilt); assert.equal(rebuilt.superview, null);
+  assert.equal(c.panelReady, true); assert.equal(c.resizeHandle.superview, c.view);
+});
 test('窗口在手机大小学习窗口内保持可见，保存 frame 只用字符串',()=>{
   const h=panel();const f=h.panel.safeFrame({x:999,y:999,width:920,height:680},{width:390,height:600});
   assert.ok(f.x>=0&&f.y>=0&&f.x+f.width<=390&&f.y+f.height<=600);
@@ -430,7 +544,7 @@ test('显示粘贴默认开启，开关独立保存并在重新打开和原生�
   c.showUploadSwitch.on = false; h.methods.toggleShowUpload(c.showUploadSwitch); await tick();
   assert.equal(h.context.__JFJC_SETTINGS__.showUpload(), false);
   assert.equal(h.context.__JFJC_SETTINGS__.showLocateCard(), true); assert.equal(h.context.__JFJC_SETTINGS__.importTopics(), true);
-  assert.ok(c.webView.scripts.some(code => code.includes('__JFJC_REVIEW__.configure({enabled:false,source:"clipboard"})')));
+  assert.ok(c.webView.scripts.some(code => code.includes('__JFJC_REVIEW__.configure({enabled:false,source:"clipboard",attachFirst:false})')));
   const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
   assert.equal(reopened.showUploadSwitch.on, false);
   h.context.MNUtil = undefined;
@@ -448,7 +562,7 @@ test('AI 工具设置分组等宽、间距一致，窄窗口说明和开关不�
     assert.equal(ai.width, tools.width); assert.equal(ai.width, card.width); assert.equal(ai.x, card.x);
     assert.equal(ai.y, tools.y); assert.equal(card.y, ai.y);
     assert.equal(c.aiToolsSection.hidden, false); assert.equal(c.questionToolsSection.hidden, true); assert.equal(c.importSettingsSection.hidden, true);
-    assert.ok(card.height > ai.height);
+    assert.ok(ai.height > card.height);
     const text = c.showUploadDescription.frame, toggle = c.showUploadSwitch.frame;
     assert.ok(text.x + text.width + 12 <= toggle.x || text.y + text.height + 2 <= toggle.y);
     assert.ok(toggle.x + toggle.width <= ai.width); assert.ok(toggle.y + toggle.height <= ai.height);
@@ -457,8 +571,135 @@ test('AI 工具设置分组等宽、间距一致，窄窗口说明和开关不�
     assert.ok(sourceText.x + sourceText.width + 8 <= value.x || sourceText.y + sourceText.height + 2 <= value.y);
     assert.equal(value.y + value.height / 2, arrow.y + arrow.height / 2);
     assert.ok(option.y + option.height <= ai.height);
+    const firstText = c.attachFirstDescription.frame, firstSwitch = c.attachFirstSwitch.frame;
+    assert.ok(firstText.x + firstText.width + 12 <= firstSwitch.x || firstText.y + firstText.height + 2 <= firstSwitch.y);
+    assert.ok(firstSwitch.y + firstSwitch.height <= ai.height);
+    assert.ok(option.y + option.height <= c.attachFirstTitle.frame.y);
     assert.equal(toggle.y, c.importTopicsSwitch.frame.y);
     assert.ok(ai.y + ai.height + 18 <= c.settingsPage.contentSize.height);
+  }
+});
+
+test('附加卡片内容默认关闭，全部来源可操作，原生保存恢复并同步网页', async () => {
+  const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
+  assert.equal(c.attachFirstTitle.text, '附加卡片内容');
+  assert.equal(c.attachFirstSwitch.on, false); assert.notEqual(c.attachFirstSwitch.enabled, false);
+  c.attachFirstSwitch.on = true; h.methods.toggleAttachFirstContent(c.attachFirstSwitch);
+  assert.equal(settings.attachFirstContent(), true); assert.equal(c.attachFirstSwitch.on, true);
+  c.attachFirstSwitch.on = false; h.methods.toggleAttachFirstContent(c.attachFirstSwitch);
+  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[2]); await tick();
+  assert.notEqual(c.attachFirstSwitch.enabled, false);
+  let cancelled = false; c.clipboardOperation = { token: 'reading', source: { cancel() { cancelled = true; } } };
+  h.context.MNUtil = undefined;
+  c.attachFirstSwitch.on = true; h.methods.toggleAttachFirstContent(c.attachFirstSwitch); await tick();
+  assert.equal(settings.attachFirstContent(), true); assert.equal(cancelled, true);
+  assert.ok(c.webView.scripts.some(code => code.includes('source:"mindmap",attachFirst:true')));
+  const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
+  assert.equal(reopened.attachFirstSwitch.on, true); assert.notEqual(reopened.attachFirstSwitch.enabled, false);
+  h.methods.chooseUploadSource(); h.methods.selectUploadSource(reopened.cardLocationModeChoice.buttons[1]); await tick();
+  assert.notEqual(reopened.attachFirstSwitch.enabled, false); assert.equal(settings.attachFirstContent(), true);
+});
+
+test('附加文字默认关闭，多行内容原生保存，关闭仍保留；其他开关刷新不覆盖未保存输入', async () => {
+  const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
+  await tick(); h.methods.openSettings();
+  assert.equal(c.extraTextTitle.text, '附加文字'); assert.equal(c.attachFirstTitle.text, '附加卡片内容');
+  assert.equal(c.extraTextSwitch.on, false); assert.equal(c.extraTextEditor.editorDocument.querySelector('textarea').disabled, false);
+  assert.equal(extraValue(c), ''); assert.equal(c.extraTextSaveButton.action, 'saveExtraText:');
+  assert.equal(c.extraTextSwitch.action, 'toggleExtraText:');
+  typeExtra(c, '请检查思路\r\n\r\n先给提示 😀');
+  h.methods.saveExtraText(); await tick();
+  assert.equal(settings.extraText(), '请检查思路\n\n先给提示 😀'); assert.equal(settings.uploadExtraText(), '');
+  c.extraTextSwitch.on = true; h.methods.toggleExtraText(c.extraTextSwitch);
+  assert.equal(settings.uploadExtraText(), settings.extraText());
+  typeExtra(c, '尚未保存的草稿');
+  c.attachFirstSwitch.on = true; h.methods.toggleAttachFirstContent(c.attachFirstSwitch);
+  assert.equal(extraValue(c), '尚未保存的草稿'); assert.notEqual(settings.extraText(), extraValue(c));
+  c.extraTextSwitch.on = false; h.methods.toggleExtraText(c.extraTextSwitch);
+  const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
+  await tick(); h.methods.openSettings();
+  assert.equal(reopened.extraTextSwitch.on, false); assert.equal(extraValue(reopened), '请检查思路\n\n先给提示 😀');
+  h.context.MNUtil = undefined;
+  typeExtra(reopened, '使用原生存储'); h.methods.saveExtraText(); await tick();
+  reopened.extraTextSwitch.on = true; h.methods.toggleExtraText(reopened.extraTextSwitch);
+  assert.equal(settings.uploadExtraText(), '使用原生存储');
+});
+
+test('附加文字保存失败或超长保留已保存内容和编辑草稿，启用或保存修改会取消读取', async () => {
+  const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
+  await tick(); h.methods.openSettings();
+  typeExtra(c, '原文字'); h.methods.saveExtraText(); await tick();
+  c.clipboardOperation = { token: 'pending' };
+  c.extraTextSwitch.on = true; h.methods.toggleExtraText(c.extraTextSwitch);
+  assert.equal(c.clipboardOperation, null);
+  typeExtra(c, 'x'.repeat(16385)); h.methods.saveExtraText(); await tick();
+  assert.equal(settings.extraText(), '原文字'); assert.equal(extraValue(c).length, 16385); assert.match(h.hud.at(-1), /16384/);
+  const save = h.context.MNUtil.setLocalDataByKey;
+  h.context.MNUtil.setLocalDataByKey = () => { throw new Error('写入失败'); };
+  typeExtra(c, '新的多行\n内容'); h.methods.saveExtraText(); await tick();
+  assert.equal(settings.extraText(), '原文字'); assert.equal(extraValue(c), '新的多行\n内容'); assert.match(h.hud.at(-1), /文字未保存/);
+  h.context.MNUtil.setLocalDataByKey = save;
+  c.clipboardOperation = { token: 'pending-2' }; h.methods.saveExtraText(); await tick();
+  assert.equal(c.clipboardOperation, null); assert.equal(settings.extraText(), '新的多行\n内容');
+});
+
+test('附加文字设置在窄屏和低窗口可滚动，输入框、说明、开关与保存按钮不重叠', () => {
+  const h = mountedPanel(), c = h.controller; h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]);
+  for (const width of [304, 390, 599, 600, 920]) {
+    c.view.frame = { x: 0, y: 0, width, height: 320 }; h.methods.viewDidLayoutSubviews();
+    const area = c.aiToolsSection.frame, text = c.extraTextDescription.frame, toggle = c.extraTextSwitch.frame, editor = c.extraTextEditor.frame, hint = c.extraTextHint.frame, save = c.extraTextSaveButton.frame;
+    assert.ok(text.x + text.width + 12 <= toggle.x || text.y + text.height + 2 <= toggle.y);
+    assert.ok(toggle.y + toggle.height < editor.y); assert.ok(editor.x + editor.width <= area.width - 20);
+    assert.ok(editor.y + editor.height <= save.y); assert.ok(hint.x + hint.width <= save.x);
+    assert.equal(editor.height, 72);
+    assert.ok(save.y + save.height < area.height);
+    assert.ok(area.height + 18 <= c.settingsPage.contentSize.height);
+  }
+});
+
+test('本地文字输入框实际 iframe 桥接保存长中文及换行，正文不放入命令 URL', async () => {
+  const h = mountedPanel({ editorIframeBridge: true }), c = h.controller;
+  await tick(); h.methods.openSettings();
+  const text = '首段😀\n' + '中文'.repeat(7000) + '\n</textarea><script>不是脚本</script>';
+  typeExtra(c, text); h.methods.saveExtraText(); await tick();
+  assert.equal(h.context.__JFJC_SETTINGS__.extraText(), text); assert.equal(extraValue(c), text);
+  assert.equal(c.extraTextEditor.blurred, true);
+  assert.ok(c.extraTextEditor.bridgeAddresses.length >= 2);
+  assert.ok(c.extraTextEditor.bridgeAddresses.every(address => address.length < 1000 && !address.includes(encodeURIComponent('首段'))));
+});
+
+test('本地文字编辑器仅可读写附加文字，导入页、数学页和旧编辑器无法调用保存', async () => {
+  const h = mountedPanel(), c = h.controller, commands = h.context.__JFJC_WEB_COMMANDS__;
+  await tick(); h.methods.openSettings();
+  await assert.rejects(commands.dispatch(c, 'loadPaper', { paperId: 237 }, c.extraTextEditor), /未知设置命令/);
+  await assert.rejects(commands.dispatch(c, 'saveExtraText', { revision: 0 }, {}), /来源无效/);
+  await assert.rejects(commands.dispatch(c, 'getExtraText', {}), /来源无效/);
+  assert.equal(h.context.__JFJC_SETTINGS__.extraText(), '');
+  for (const address of ['https://example.com/', 'file:///etc/passwd', 'jifengjincaobridge://upload-content?scope=composer-1']) {
+    assert.equal(h.methods.webViewShouldStartLoadWithRequestNavigationType(c.extraTextEditor, { URL: { absoluteString: address } }, 0), false);
+  }
+  h.methods.openMath();
+  await assert.rejects(commands.dispatch(c, 'saveExtraText', { revision: 0 }, c.extraTextEditor), /打开设置/);
+});
+
+test('保存读取期间修改文字或替换编辑器不写入旧内容，失败后仍能重试保存', async () => {
+  for (const action of ['edit', 'replace']) {
+    const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
+    await tick(); h.methods.openSettings();
+    typeExtra(c, '旧草稿');
+    const web = c.extraTextEditor, evaluate = web.evaluateJavaScript.bind(web); let release;
+    web.evaluateJavaScript = (code, callback) => {
+      if (code.startsWith('JSON.stringify(window.__JFJC_EXTRA_TEXT__.read(')) release = () => evaluate(code, callback);
+      else evaluate(code, callback);
+    };
+    h.methods.saveExtraText();
+    assert.equal(typeof release, 'function');
+    if (action === 'edit') typeExtra(c, '修改后的草稿'); else c.extraTextEditor = {};
+    release(); await tick();
+    assert.equal(settings.extraText(), ''); assert.match(h.hud.at(-1), /文字未保存/);
+    c.extraTextEditor = web; web.evaluateJavaScript = evaluate;
+    h.methods.saveExtraText(); await tick();
+    assert.equal(settings.extraText(), action === 'edit' ? '修改后的草稿' : '旧草稿');
   }
 });
 
@@ -468,13 +709,13 @@ test('上传来源默认剪贴板，可切换、取消和重新打开恢复，�
   assert.equal(c.uploadSourceButton.action, 'chooseUploadSource:');
   h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]);
   h.methods.chooseUploadSource(); const choice = c.cardLocationModeChoice;
-  assert.equal(choice.title.text, '上传来源'); assert.deepEqual(Array.from(choice.values), ['clipboard', 'handwriting']);
+  assert.equal(choice.title.text, '上传来源'); assert.deepEqual(Array.from(choice.values), ['clipboard', 'handwriting', 'mindmap']);
   c.clipboardOperation = { token: 'old-transfer', handwriting: false };
   h.methods.selectUploadSource(choice.buttons[1]); await tick();
   assert.equal(c.uploadSourceValue.text, '卡片手写'); assert.equal(c.clipboardOperation, null);
   assert.equal(settings.uploadSource(), 'handwriting');
   assert.ok(c.webView.scripts.some(code => code.includes('source:"handwriting"')));
-  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[2]);
+  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[3]);
   assert.equal(settings.uploadSource(), 'handwriting');
   h.native.savePreference('ai-tools.show-paste', false);
   const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
@@ -482,6 +723,29 @@ test('上传来源默认剪贴板，可切换、取消和重新打开恢复，�
   h.context.MNUtil = undefined;
   h.methods.chooseUploadSource(); h.methods.selectUploadSource(reopened.cardLocationModeChoice.buttons[0]); await tick();
   assert.equal(settings.uploadSource(), 'clipboard'); assert.equal(reopened.uploadSourceValue.text, '剪贴板');
+});
+
+test('脑图手写来源由原生保存，切换取消读取，重新打开恢复并同步网站', async () => {
+  const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
+  h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]);
+  let cancelled = false;
+  c.clipboardOperation = { token: 'pending-media', source: { cancel() { cancelled = true; } } };
+  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[2]); await tick();
+  assert.equal(settings.uploadSource(), 'mindmap'); assert.equal(c.uploadSourceValue.text, '脑图手写');
+  assert.equal(cancelled, true); assert.equal(c.clipboardOperation, null);
+  assert.ok(c.webView.scripts.some(code => code.includes('source:"mindmap"')));
+  const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
+  assert.equal(reopened.uploadSourceValue.text, '脑图手写');
+  h.methods.chooseUploadSource();
+  const choice = reopened.cardLocationModeChoice;
+  assert.equal(choice.buttons[2].title, '脑图手写（当前）');
+  for (const [width, height] of [[304, 320], [390, 540], [920, 680]]) {
+    reopened.view.frame = { x: 0, y: 0, width, height }; h.methods.viewDidLayoutSubviews();
+    assert.ok(choice.sheet.frame.y + choice.sheet.frame.height <= choice.overlay.frame.height);
+    choice.buttons.forEach(button => assert.ok(button.frame.y + button.frame.height <= choice.sheet.frame.height));
+  }
+  h.methods.selectUploadSource(choice.buttons[3]);
+  assert.equal(settings.uploadSource(), 'mindmap');
 });
 
 test('上传来源保存失败不切换来源、不取消现有操作，并显示失败原因', () => {

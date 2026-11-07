@@ -1,5 +1,5 @@
 var __JFJC_HANDWRITING__ = (function () {
-  const N = __JFJC_NATIVE__, MAX = 10 * 1024 * 1024;
+  const N = __JFJC_NATIVE__, MAX = 10 * 1024 * 1024, MAX_TEXT = 1024 * 1024, MAX_BUNDLE = Math.ceil(MAX / 3) * 4 + MAX_TEXT + 4096;
   function value(object, key) {
     if (!object) return undefined;
     let item = object[key];
@@ -30,28 +30,55 @@ var __JFJC_HANDWRITING__ = (function () {
         return { index: index, hash: drawing };
       }
     }
-    throw new Error('所选卡片没有可读取的手写批注，请先保存手写后重试');
+    throw new Error('来源卡片没有可读取的手写批注，请先保存手写后重试');
   }
-  function capture(addon) {
-    const context = N.context(addon), note = selected(context, addon), noteId = N.noteId(note), source = latest(note);
+  function prepare(addon, sourceType) {
+    const context = N.context(addon);
+    let fallback, fallbackError;
+    // 备用来源固定为点击上传时的单选卡片，查找期间的改选不会悄悄改变来源。
+    try { fallback = capture(addon, null, context, sourceType); } catch (error) { fallbackError = error; }
+    return async function (target, check) {
+      function validate() { N.ensureContext(addon, context); check(); }
+      validate();
+      const candidates = target ? await __JFJC_CARD_LOCATOR__.find(addon, target, validate) : [];
+      validate();
+      if (candidates.length > 1) throw new Error('找到多张同题题卡，无法唯一确定上传来源，请先整理重复题卡');
+      if (candidates.length) return capture(addon, candidates[0], context, sourceType);
+      if (fallbackError) throw new Error((target ? '未找到对应题卡；' : '') + String(fallbackError.message || fallbackError));
+      fallback.validate();
+      fallback.notice = target ? '未找到对应题卡，使用当前选中卡片' : '当前对话没有关联题号，使用当前选中卡片';
+      return fallback;
+    };
+  }
+  function capture(addon, candidate, captured, sourceType) {
+    const context = captured || N.context(addon), note = candidate ? context.database.getNoteById(candidate.noteId) : selected(context, addon);
+    const noteId = N.noteId(note), notebookId = candidate ? candidate.notebookId : context.notebookId;
+    if (!noteId || String(value(note, 'notebookId') || '') !== notebookId) throw new Error('来源卡片不存在或已移动，请重新上传');
+    const mindmap = sourceType === 'mindmap', clipboard = sourceType === 'clipboard', link = candidate && __JFJC_CARD_LOCATOR__.identity(note), source = mindmap || clipboard ? null : latest(note);
+    if (candidate && (!link || link.questionId !== candidate.questionId || link.paperId !== candidate.sourcePaperId)) throw new Error('题卡来源已变化，请重新上传');
     function validate() {
       N.ensureContext(addon, context);
-      const live = selected(context, addon);
-      if (N.noteId(live) !== noteId) throw new Error('所选卡片已切换，手写上传已停止');
-      const current = latest(live);
-      if (current.index !== source.index || current.hash !== source.hash) throw new Error('最后一条手写批注已变化，请重新上传');
+      const live = candidate ? context.database.getNoteById(noteId) : selected(context, addon);
+      if (!live || N.noteId(live) !== noteId || String(value(live, 'notebookId') || '') !== notebookId) throw new Error('来源卡片已删除、移动或所选卡片已切换，上传已停止');
+      const currentLink = candidate && __JFJC_CARD_LOCATOR__.identity(live);
+      if (candidate && (!currentLink || currentLink.paperId !== link.paperId || currentLink.questionId !== link.questionId)) throw new Error('题卡来源已变化，请重新上传');
+      if (source) {
+        const current = latest(live);
+        if (current.index !== source.index || current.hash !== source.hash) throw new Error('最后一条手写批注已变化，请重新上传');
+      }
     }
     let pending = null;
     function cancel() {
       if (pending) pending.finish(null, new Error('手写上传已取消'));
     }
-    function content(controller) {
+    function content(controller, attachFirst) {
       validate();
       if (typeof AddonWebPanel === 'undefined' || typeof AddonWebPanel.panel !== 'function') throw new Error('当前 MN 缺少官方媒体面板接口，请更新 MN');
       return new Promise(function (resolve, reject) {
         let panel, timer, settled = false;
-        const request = { token: 'ink-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), noteId: noteId, index: source.index + 1,
-          validate: validate, chunks: [], offset: 0, stage: '官方媒体页面加载' };
+        // 脑图或仅附带首条时不使用手写评论序号，以零值握手。
+        const request = { token: 'ink-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), noteId: noteId, index: source ? source.index + 1 : 0, source: clipboard ? 'clipboard' : mindmap ? 'mindmap' : 'handwriting',
+          attachFirst: attachFirst === true, validate: validate, chunks: [], offset: 0, stage: '官方媒体页面加载' };
         function finish(result, error) {
           if (settled) return; settled = true;
           if (timer) timer.invalidate();
@@ -86,7 +113,7 @@ var __JFJC_HANDWRITING__ = (function () {
       if (payload.phase === 'ready') {
         if (request.ready) throw new Error('官方媒体页面重复请求，请重新上传');
         request.ready = true; request.stage = '官方卡片信息读取';
-        return { token: request.token, noteId: request.noteId, index: request.index };
+        return { token: request.token, noteId: request.noteId, index: request.index, source: request.source, attachFirst: request.attachFirst };
       }
       if (payload.phase === 'error') throw new Error(String(payload.message || '官方手写图片读取失败'));
       if (payload.phase === 'progress') {
@@ -94,19 +121,37 @@ var __JFJC_HANDWRITING__ = (function () {
         if (!request.ready || !stages[payload.stage]) throw new Error('官方手写读取阶段无效');
         request.stage = stages[payload.stage];
       } else if (payload.phase === 'begin') {
-        if (request.length || payload.noteId !== request.noteId || payload.index !== request.index || !Number.isSafeInteger(payload.bytes) || payload.bytes < 1 || payload.bytes > MAX
-          || payload.length !== Math.ceil(payload.bytes / 3) * 4) throw new Error('官方手写图片大小或来源无效');
+        const bundle = request.attachFirst && payload.format === 'bundle';
+        if (request.length || payload.noteId !== request.noteId || payload.index !== request.index || !Number.isSafeInteger(payload.bytes) || payload.bytes < (bundle && request.source === 'clipboard' ? 0 : 1) || payload.bytes > MAX
+          || !Number.isSafeInteger(payload.length) || (bundle ? payload.length < 4 || payload.length > MAX_BUNDLE : payload.length !== Math.ceil(payload.bytes / 3) * 4)
+          || Boolean(request.attachFirst) !== Boolean(bundle)) throw new Error('官方手写图片大小或来源无效');
+        request.bundle = bundle; request.bytes = payload.bytes;
         request.length = payload.length; request.stage = '手写图片回传';
       } else if (payload.phase === 'chunk') {
-        if (!request.length || payload.offset !== request.offset || typeof payload.text !== 'string' || !/^[A-Za-z0-9+/=]{1,65536}$/.test(payload.text) || request.offset + payload.text.length > request.length) throw new Error('官方手写图片分块无效');
+        if (!request.length || payload.offset !== request.offset || typeof payload.text !== 'string' || !payload.text.length || payload.text.length > 65536 || !request.bundle && !/^[A-Za-z0-9+/=]+$/.test(payload.text) || request.offset + payload.text.length > request.length) throw new Error('官方手写图片分块无效');
         request.chunks.push(payload.text); request.offset += payload.text.length;
       } else if (payload.phase === 'finish') {
         const base64 = request.chunks.join('');
-        if (!request.length || request.offset !== request.length || !/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new Error('官方手写 PNG 不完整');
-        request.finish({ type: 'image/png', base64: base64 });
+        if (!request.length || request.offset !== request.length) throw new Error('官方手写 PNG 不完整');
+        if (request.bundle) {
+          const bundle = JSON.parse(base64);
+          if (!bundle || typeof bundle.text !== 'string' || bundle.text.length > MAX_TEXT || !Array.isArray(bundle.files) || (!bundle.files.length && (request.source !== 'clipboard' || !bundle.text)) || bundle.files.length > 5) throw new Error('附带图文数据无效');
+          let total = 0;
+          bundle.files.forEach(function (file) {
+            if (!file || !Number.isSafeInteger(file.bytes) || file.bytes < 1 || file.bytes > MAX || typeof file.base64 !== 'string' || !/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(file.base64)
+              || file.base64.length !== Math.ceil(file.bytes / 3) * 4 || file.base64.length / 4 * 3 - (file.base64.endsWith('==') ? 2 : file.base64.endsWith('=') ? 1 : 0) !== file.bytes) throw new Error('附带图文图片无效');
+            total += file.bytes;
+          });
+          if (total > MAX) throw new Error('本次图片合计超过 10 MiB，请缩减首条图片后重试');
+          if (total !== request.bytes) throw new Error('附带图文图片不完整');
+          request.finish({ type: 'application/x-jfjc-upload+json', text: base64 });
+        } else {
+          if (!/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new Error('官方手写 PNG 不完整');
+          request.finish({ type: 'image/png', base64: base64 });
+        }
       } else throw new Error('未知手写图片阶段');
       return { ok: true };
     } catch (error) { request.finish(null, error); throw error; }
   }
-  return { capture: capture, latest: latest, receive: receive };
+  return { prepare: prepare, capture: capture, latest: latest, receive: receive };
 })();

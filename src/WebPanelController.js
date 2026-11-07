@@ -53,7 +53,11 @@ var __JFJC_PANEL__ = (function () {
     controller.view.addSubview(controller.resizeHandle);
   }
   function layout(controller) {
-    if (!controller.titleBar) return;
+    if (!controller.titleBar || !controller.resizeHandle || controller.panelReady === false || controller.panelInitializing || controller.panelLayingOut) return;
+    controller.panelLayingOut = true;
+    try { layoutReady(controller); } finally { controller.panelLayingOut = false; }
+  }
+  function layoutReady(controller) {
     const b = controller.view.bounds;
     controller.titleBar.frame = { x: 0, y: 0, width: b.width, height: BAR_HEIGHT };
     __JFJC_PANEL_NAVIGATION__.layout(controller);
@@ -65,7 +69,16 @@ var __JFJC_PANEL__ = (function () {
     __JFJC_CARD_LOCATOR_UI__.layout(controller);
   }
   function setup(controller) {
-    if (controller.webView) return;
+    if (controller.panelReady || controller.panelInitializing) return;
+    // 原生控件构造也可能同步触发布局，完整建立面板后才允许布局。
+    controller.panelInitializing = true; controller.panelReady = false;
+    try { build(controller); controller.panelReady = true; }
+    finally { controller.panelInitializing = false; }
+    layout(controller); load(controller, START_URL);
+  }
+  function build(controller) {
+    if (controller.view && controller.view.superview) controller.view.removeFromSuperview();
+    controller.settingsReady = false; controller.settingsHeader = null;
     controller.view = new UIView({ x: 0, y: 0, width: 980, height: 680 });
     controller.view.backgroundColor = UIColor.whiteColor(); controller.view.layer.cornerRadius = 8;
     controller.view.layer.borderWidth = 0.5; controller.view.layer.borderColor = UIColor.lightGrayColor(); controller.view.layer.masksToBounds = true;
@@ -87,18 +100,17 @@ var __JFJC_PANEL__ = (function () {
     controller.resizeHandle = new UILabel({ x: 894, y: 654, width: 26, height: 26 }); controller.resizeHandle.text = '◢';
     controller.resizeHandle.textColor = UIColor.grayColor(); controller.resizeHandle.userInteractionEnabled = true;
     controller.resizeHandle.addGestureRecognizer(new UIPanGestureRecognizer(controller, 'resizePanel:')); controller.view.addSubview(controller.resizeHandle);
-    layout(controller); load(controller, START_URL);
   }
   async function inject(controller) {
     await T.waitReady(controller);
-    const result = await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + ',importEnabled:' + __JFJC_SETTINGS__.showSingleImport() + '});window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + '});return "injected";})()');
+    const result = await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + ',importEnabled:' + __JFJC_SETTINGS__.showSingleImport() + '});window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + '});return "injected";})()');
     return result;
   }
   function syncQuestionTools(controller) {
     return T.optional(controller, 'window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + ',importEnabled:' + __JFJC_SETTINGS__.showSingleImport() + '})');
   }
   function syncAiTools(controller) {
-    return T.optional(controller, 'window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + '})');
+    return T.optional(controller, 'window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + '})');
   }
   async function singleImport(controller, token, target) {
     let session;
@@ -218,6 +230,8 @@ var __JFJC_PANEL__ = (function () {
     return true;
   }
   function show(controller) {
+    if (controller.titleBar && (!controller.resizeHandle || !controller.settingsReady)) controller.panelReady = false;
+    if (controller.panelReady === false && !controller.panelInitializing) setup(controller);
     const parent = study(controller); if (!parent || !parent.view) throw new Error('当前学习窗口不可用');
     if (!controller.view.superview) parent.view.addSubview(controller.view);
     let frame = {}; try { frame = JSON.parse(String(N.preference('frame', '{}'))); } catch (error) {}
@@ -257,6 +271,9 @@ var __JFJC_PANEL__ = (function () {
     toggleShowLocateCard: function (sender) { __JFJC_SETTINGS__.toggleLocate(self, sender); },
     toggleShowSingleImport: function (sender) { __JFJC_SETTINGS__.toggleSingle(self, sender); },
     toggleShowUpload: function (sender) { __JFJC_SETTINGS__.toggleUpload(self, sender); },
+    toggleAttachFirstContent: function (sender) { __JFJC_SETTINGS__.toggleAttachFirstContent(self, sender); },
+    toggleExtraText: function (sender) { __JFJC_SETTINGS__.toggleExtraText(self, sender); },
+    saveExtraText: function () { __JFJC_SETTINGS__.saveExtraText(self); },
     chooseUploadSource: function () { try { __JFJC_SETTINGS__.chooseUploadSource(self); } catch (error) { N.show(self.addon, String(error.message || error)); } },
     selectUploadSource: function (sender) { __JFJC_CARD_LOCATOR_UI__.selectMode(self, Number(N.value(sender, 'tag')), sender); },
     toggleSourceCommentFold: function (sender) { __JFJC_SETTINGS__.toggleFold(self, sender); },
@@ -285,6 +302,11 @@ var __JFJC_PANEL__ = (function () {
       layout(controller); recognizer.setTranslationInView({ x: 0, y: 0 }, parent); if (recognizer.state === 3) saveFrame(controller);
     },
     webViewShouldStartLoadWithRequestNavigationType: function (webView, request, type) {
+      if (webView === self.extraTextEditor) {
+        const address = requestAddress(request);
+        if (/^mnaddon:/i.test(address)) { __JFJC_WEB_COMMANDS__.handle(self, address, webView); return false; }
+        return address === 'about:blank';
+      }
       if (webView === self.importWebView) {
         const localAddress = requestAddress(request);
         if (/^mnaddon:/i.test(localAddress)) { __JFJC_WEB_COMMANDS__.handle(self, localAddress); return false; }
@@ -303,6 +325,10 @@ var __JFJC_PANEL__ = (function () {
       inject(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 网页连接失败：' + String(error.message || error)); });
     },
     webViewDidFailLoadWithError: function (webView, error) {
+      if (webView === self.extraTextEditor) {
+        self.extraTextWebReady = false; self.extraTextSaveButton.enabled = false;
+        self.extraTextHint.text = '文字输入框加载失败，请重新打开面板';
+      }
       if (webView === self.webView) console.log('[Jifengjincao Bridge] 页面加载：' + String(N.value(error, 'localizedDescription') || error));
     }
   });
