@@ -54,7 +54,7 @@ var __JFJC_HANDWRITING__ = (function () {
     const context = captured || N.context(addon), note = candidate ? context.database.getNoteById(candidate.noteId) : selected(context, addon);
     const noteId = N.noteId(note), notebookId = candidate ? candidate.notebookId : context.notebookId;
     if (!noteId || String(value(note, 'notebookId') || '') !== notebookId) throw new Error('来源卡片不存在或已移动，请重新上传');
-    const mindmap = sourceType === 'mindmap', clipboard = sourceType === 'clipboard', link = candidate && __JFJC_CARD_LOCATOR__.identity(note), source = mindmap || clipboard ? null : latest(note);
+    const mindmap = sourceType === 'mindmap', none = sourceType === 'none', link = candidate && __JFJC_CARD_LOCATOR__.identity(note), source = mindmap || none ? null : latest(note);
     if (candidate && (!link || link.questionId !== candidate.questionId || link.paperId !== candidate.sourcePaperId)) throw new Error('题卡来源已变化，请重新上传');
     function validate() {
       N.ensureContext(addon, context);
@@ -76,8 +76,8 @@ var __JFJC_HANDWRITING__ = (function () {
       if (typeof AddonWebPanel === 'undefined' || typeof AddonWebPanel.panel !== 'function') throw new Error('当前 MN 缺少官方媒体面板接口，请更新 MN');
       return new Promise(function (resolve, reject) {
         let panel, timer, settled = false;
-        // 脑图或仅附带首条时不使用手写评论序号，以零值握手。
-        const request = { token: 'ink-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), noteId: noteId, index: source ? source.index + 1 : 0, source: clipboard ? 'clipboard' : mindmap ? 'mindmap' : 'handwriting',
+        // 脑图或仅上传卡片首条时不使用手写评论序号，以零值握手。
+        const request = { token: 'ink-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), noteId: noteId, index: source ? source.index + 1 : 0, source: none ? 'none' : mindmap ? 'mindmap' : 'handwriting',
           attachFirst: attachFirst === true, validate: validate, chunks: [], offset: 0, stage: '官方媒体页面加载' };
         function finish(result, error) {
           if (settled) return; settled = true;
@@ -122,7 +122,7 @@ var __JFJC_HANDWRITING__ = (function () {
         request.stage = stages[payload.stage];
       } else if (payload.phase === 'begin') {
         const bundle = request.attachFirst && payload.format === 'bundle';
-        if (request.length || payload.noteId !== request.noteId || payload.index !== request.index || !Number.isSafeInteger(payload.bytes) || payload.bytes < (bundle && request.source === 'clipboard' ? 0 : 1) || payload.bytes > MAX
+        if (request.length || payload.noteId !== request.noteId || payload.index !== request.index || !Number.isSafeInteger(payload.bytes) || payload.bytes < (bundle && request.source === 'none' ? 0 : 1) || payload.bytes > MAX
           || !Number.isSafeInteger(payload.length) || (bundle ? payload.length < 4 || payload.length > MAX_BUNDLE : payload.length !== Math.ceil(payload.bytes / 3) * 4)
           || Boolean(request.attachFirst) !== Boolean(bundle)) throw new Error('官方手写图片大小或来源无效');
         request.bundle = bundle; request.bytes = payload.bytes;
@@ -135,15 +135,15 @@ var __JFJC_HANDWRITING__ = (function () {
         if (!request.length || request.offset !== request.length) throw new Error('官方手写 PNG 不完整');
         if (request.bundle) {
           const bundle = JSON.parse(base64);
-          if (!bundle || typeof bundle.text !== 'string' || bundle.text.length > MAX_TEXT || !Array.isArray(bundle.files) || (!bundle.files.length && (request.source !== 'clipboard' || !bundle.text)) || bundle.files.length > 5) throw new Error('附带图文数据无效');
+          if (!bundle || typeof bundle.text !== 'string' || bundle.text.length > MAX_TEXT || !Array.isArray(bundle.files) || (!bundle.files.length && (request.source !== 'none' || !bundle.text)) || bundle.files.length > 5) throw new Error('卡片图文数据无效');
           let total = 0;
           bundle.files.forEach(function (file) {
             if (!file || !Number.isSafeInteger(file.bytes) || file.bytes < 1 || file.bytes > MAX || typeof file.base64 !== 'string' || !/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(file.base64)
-              || file.base64.length !== Math.ceil(file.bytes / 3) * 4 || file.base64.length / 4 * 3 - (file.base64.endsWith('==') ? 2 : file.base64.endsWith('=') ? 1 : 0) !== file.bytes) throw new Error('附带图文图片无效');
+              || file.base64.length !== Math.ceil(file.bytes / 3) * 4 || file.base64.length / 4 * 3 - (file.base64.endsWith('==') ? 2 : file.base64.endsWith('=') ? 1 : 0) !== file.bytes) throw new Error('卡片图文图片无效');
             total += file.bytes;
           });
           if (total > MAX) throw new Error('本次图片合计超过 10 MiB，请缩减首条图片后重试');
-          if (total !== request.bytes) throw new Error('附带图文图片不完整');
+          if (total !== request.bytes) throw new Error('卡片图文图片不完整');
           request.finish({ type: 'application/x-jfjc-upload+json', text: base64 });
         } else {
           if (!/^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new Error('官方手写 PNG 不完整');

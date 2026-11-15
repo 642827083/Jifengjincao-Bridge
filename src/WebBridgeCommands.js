@@ -31,7 +31,7 @@ var __JFJC_WEB_COMMANDS__ = (function () {
     check(controller, request);
     await T.waitReady(controller, function () { check(controller, request); }); check(controller, request);
     const context = N.context(controller.addon);
-    await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + '});return "injected";})()');
+    await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + ',hasPrompt:' + Boolean(__JFJC_SETTINGS__.uploadExtraText()) + '});return "injected";})()');
     check(controller, request);
     const value = { token: 'panel-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2), context: context, cancelled: false, running: false, panel: true };
     controller.session = value; return value;

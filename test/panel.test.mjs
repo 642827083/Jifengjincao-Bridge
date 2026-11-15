@@ -159,7 +159,7 @@ function typeExtra(controller, text) {
 }
 function extraValue(controller) { return controller.extraTextEditor.editorDocument.querySelector('textarea').value; }
 
-test('创建附加文字输入框时同步触发布局，不中断设置导航、缩放角和数学页加载', async () => {
+test('创建提示词输入框时同步触发布局，不中断设置导航、缩放角和数学页加载', async () => {
   let reentered = false;
   const h = mountedPanel({ onExtraEditorCreate(host) { reentered = true; host.methods.viewDidLayoutSubviews(); } });
   await tick();
@@ -202,7 +202,7 @@ test('可选文字编辑器创建异常时保留设置胶囊、数学页、关�
   assert.equal(c.resizeHandle.frame.x, 854); assert.equal(c.resizeHandle.frame.y, 574);
 });
 
-test('UITextView 不可构造时仍提供可编辑的附加文字输入框', () => {
+test('UITextView 不可构造时仍提供可编辑的提示词输入框', () => {
   const h = mountedPanel({ onTextViewCreate() { throw new Error('UITextView 不可构造'); } }), c = h.controller;
   assert.ok(c.extraTextEditor);
   assert.equal(typeof c.extraTextEditor.loadHTMLStringBaseURL, 'function');
@@ -256,20 +256,20 @@ test('未知命令和旧 token 不执行导入，合法取消命令生效',()=>{
 
 test('对话粘贴命令只接受输入框标识，导航离开会取消正在传输的图片',()=>{
   const h=panel(), calls=[], controller={addon:{window:{}},webView:{evaluateJavaScript(code,cb){cb('cancelled',null);}}};
-  h.context.__JFJC_CLIPBOARD__.start=async (owner,item)=>calls.push([owner,item]);
+  h.context.__JFJC_UPLOAD__.start=async (owner,item)=>calls.push([owner,item]);
   assert.equal(h.panel.command(controller,'jifengjincaobridge://upload-content?token=&scope=composer-1'),true);
   assert.equal(calls[0][1],'composer-1');
   for(const scope of ['0','-1','5519','composer-0','composer-1%26url%3Devil','composer-1000000000']) assert.equal(h.panel.command(controller,'jifengjincaobridge://upload-content?token=&scope='+scope),false);
   assert.equal(h.panel.command(controller,'jifengjincaobridge://upload-content?token=other&scope=composer-1'),false);
-  controller.clipboardOperation={token:'clipboard'}; h.context.self=controller;
+  controller.uploadOperation={token:'none'}; h.context.self=controller;
   const request={URL:{absoluteString:'https://bbkaoyan.cn/papers'},mainDocumentURL:{absoluteString:'https://bbkaoyan.cn/papers'}};
   h.methods.webViewShouldStartLoadWithRequestNavigationType(controller.webView,request,0);
-  assert.equal(controller.clipboardOperation,null);
+  assert.equal(controller.uploadOperation,null);
 });
 test('统一上传命令遵守开关与忙碌限制，旧手写入口不再绕过设置',()=>{
   const h=panel(), calls=[], controller={addon:{window:{}},webView:{evaluateJavaScript(code,cb){cb('cancelled',null);}}};
   h.native.savePreference('ai-tools.show-paste',false);
-  h.context.__JFJC_CLIPBOARD__.start=async (owner,scope)=>calls.push([owner,scope]);
+  h.context.__JFJC_UPLOAD__.start=async (owner,scope)=>calls.push([owner,scope]);
   const command='jifengjincaobridge://upload-content?token=&scope=composer-1';
   assert.equal(h.panel.command(controller,command),true); assert.equal(calls.length,0);
   assert.equal(h.panel.command(controller,command.replace('upload-content','upload-handwriting')),false);
@@ -537,14 +537,14 @@ test('设置包含题目工具、AI 工具和题卡工具，网页诊断及辅�
   }
 });
 
-test('显示粘贴默认开启，开关独立保存并在重新打开和原生配置回退时恢复', async () => {
+test('显示上传默认开启，开关独立保存并在重新打开和原生配置回退时恢复', async () => {
   const h = mountedPanel(), c = h.controller;
   assert.equal(c.aiToolsTitle.text, 'AI 工具'); assert.equal(c.showUploadTitle.text, '显示上传');
   assert.equal(c.showUploadSwitch.on, true); assert.equal(c.showUploadSwitch.action, 'toggleShowUpload:');
   c.showUploadSwitch.on = false; h.methods.toggleShowUpload(c.showUploadSwitch); await tick();
   assert.equal(h.context.__JFJC_SETTINGS__.showUpload(), false);
   assert.equal(h.context.__JFJC_SETTINGS__.showLocateCard(), true); assert.equal(h.context.__JFJC_SETTINGS__.importTopics(), true);
-  assert.ok(c.webView.scripts.some(code => code.includes('__JFJC_REVIEW__.configure({enabled:false,source:"clipboard",attachFirst:false})')));
+  assert.ok(c.webView.scripts.some(code => code.includes('__JFJC_REVIEW__.configure({enabled:false,source:"none",attachFirst:false,hasPrompt:false})')));
   const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
   assert.equal(reopened.showUploadSwitch.on, false);
   h.context.MNUtil = undefined;
@@ -574,22 +574,22 @@ test('AI 工具设置分组等宽、间距一致，窄窗口说明和开关不�
     const firstText = c.attachFirstDescription.frame, firstSwitch = c.attachFirstSwitch.frame;
     assert.ok(firstText.x + firstText.width + 12 <= firstSwitch.x || firstText.y + firstText.height + 2 <= firstSwitch.y);
     assert.ok(firstSwitch.y + firstSwitch.height <= ai.height);
-    assert.ok(option.y + option.height <= c.attachFirstTitle.frame.y);
+    assert.ok(firstSwitch.y + firstSwitch.height <= option.y);
     assert.equal(toggle.y, c.importTopicsSwitch.frame.y);
     assert.ok(ai.y + ai.height + 18 <= c.settingsPage.contentSize.height);
   }
 });
 
-test('附加卡片内容默认关闭，全部来源可操作，原生保存恢复并同步网页', async () => {
+test('上传卡片内容默认关闭，全部来源可操作，原生保存恢复并同步网页', async () => {
   const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
-  assert.equal(c.attachFirstTitle.text, '附加卡片内容');
+  assert.equal(c.attachFirstTitle.text, '上传卡片内容');
   assert.equal(c.attachFirstSwitch.on, false); assert.notEqual(c.attachFirstSwitch.enabled, false);
   c.attachFirstSwitch.on = true; h.methods.toggleAttachFirstContent(c.attachFirstSwitch);
   assert.equal(settings.attachFirstContent(), true); assert.equal(c.attachFirstSwitch.on, true);
   c.attachFirstSwitch.on = false; h.methods.toggleAttachFirstContent(c.attachFirstSwitch);
-  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[2]); await tick();
+  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[1]); await tick();
   assert.notEqual(c.attachFirstSwitch.enabled, false);
-  let cancelled = false; c.clipboardOperation = { token: 'reading', source: { cancel() { cancelled = true; } } };
+  let cancelled = false; c.uploadOperation = { token: 'reading', source: { cancel() { cancelled = true; } } };
   h.context.MNUtil = undefined;
   c.attachFirstSwitch.on = true; h.methods.toggleAttachFirstContent(c.attachFirstSwitch); await tick();
   assert.equal(settings.attachFirstContent(), true); assert.equal(cancelled, true);
@@ -600,10 +600,10 @@ test('附加卡片内容默认关闭，全部来源可操作，原生保存恢�
   assert.notEqual(reopened.attachFirstSwitch.enabled, false); assert.equal(settings.attachFirstContent(), true);
 });
 
-test('附加文字默认关闭，多行内容原生保存，关闭仍保留；其他开关刷新不覆盖未保存输入', async () => {
+test('提示词默认关闭，多行内容原生保存，关闭仍保留；其他开关刷新不覆盖未保存输入', async () => {
   const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
   await tick(); h.methods.openSettings();
-  assert.equal(c.extraTextTitle.text, '附加文字'); assert.equal(c.attachFirstTitle.text, '附加卡片内容');
+  assert.equal(c.extraTextTitle.text, '提示词'); assert.equal(c.attachFirstTitle.text, '上传卡片内容');
   assert.equal(c.extraTextSwitch.on, false); assert.equal(c.extraTextEditor.editorDocument.querySelector('textarea').disabled, false);
   assert.equal(extraValue(c), ''); assert.equal(c.extraTextSaveButton.action, 'saveExtraText:');
   assert.equal(c.extraTextSwitch.action, 'toggleExtraText:');
@@ -625,13 +625,13 @@ test('附加文字默认关闭，多行内容原生保存，关闭仍保留；�
   assert.equal(settings.uploadExtraText(), '使用原生存储');
 });
 
-test('附加文字保存失败或超长保留已保存内容和编辑草稿，启用或保存修改会取消读取', async () => {
+test('提示词保存失败或超长保留已保存内容和编辑草稿，启用或保存修改会取消读取', async () => {
   const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
   await tick(); h.methods.openSettings();
   typeExtra(c, '原文字'); h.methods.saveExtraText(); await tick();
-  c.clipboardOperation = { token: 'pending' };
+  c.uploadOperation = { token: 'pending' };
   c.extraTextSwitch.on = true; h.methods.toggleExtraText(c.extraTextSwitch);
-  assert.equal(c.clipboardOperation, null);
+  assert.equal(c.uploadOperation, null);
   typeExtra(c, 'x'.repeat(16385)); h.methods.saveExtraText(); await tick();
   assert.equal(settings.extraText(), '原文字'); assert.equal(extraValue(c).length, 16385); assert.match(h.hud.at(-1), /16384/);
   const save = h.context.MNUtil.setLocalDataByKey;
@@ -639,11 +639,11 @@ test('附加文字保存失败或超长保留已保存内容和编辑草稿，�
   typeExtra(c, '新的多行\n内容'); h.methods.saveExtraText(); await tick();
   assert.equal(settings.extraText(), '原文字'); assert.equal(extraValue(c), '新的多行\n内容'); assert.match(h.hud.at(-1), /文字未保存/);
   h.context.MNUtil.setLocalDataByKey = save;
-  c.clipboardOperation = { token: 'pending-2' }; h.methods.saveExtraText(); await tick();
-  assert.equal(c.clipboardOperation, null); assert.equal(settings.extraText(), '新的多行\n内容');
+  c.uploadOperation = { token: 'pending-2' }; h.methods.saveExtraText(); await tick();
+  assert.equal(c.uploadOperation, null); assert.equal(settings.extraText(), '新的多行\n内容');
 });
 
-test('附加文字设置在窄屏和低窗口可滚动，输入框、说明、开关与保存按钮不重叠', () => {
+test('提示词设置在窄屏和低窗口可滚动，输入框、说明、开关与保存按钮不重叠', () => {
   const h = mountedPanel(), c = h.controller; h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]);
   for (const width of [304, 390, 599, 600, 920]) {
     c.view.frame = { x: 0, y: 0, width, height: 320 }; h.methods.viewDidLayoutSubviews();
@@ -668,7 +668,7 @@ test('本地文字输入框实际 iframe 桥接保存长中文及换行，正文
   assert.ok(c.extraTextEditor.bridgeAddresses.every(address => address.length < 1000 && !address.includes(encodeURIComponent('首段'))));
 });
 
-test('本地文字编辑器仅可读写附加文字，导入页、数学页和旧编辑器无法调用保存', async () => {
+test('本地文字编辑器仅可读写提示词，导入页、数学页和旧编辑器无法调用保存', async () => {
   const h = mountedPanel(), c = h.controller, commands = h.context.__JFJC_WEB_COMMANDS__;
   await tick(); h.methods.openSettings();
   await assert.rejects(commands.dispatch(c, 'loadPaper', { paperId: 237 }, c.extraTextEditor), /未知设置命令/);
@@ -703,16 +703,32 @@ test('保存读取期间修改文字或替换编辑器不写入旧内容，失�
   }
 });
 
-test('上传来源默认剪贴板，可切换、取消和重新打开恢复，旧显示配置继续生效', async () => {
+test('旧剪贴板来源迁移为无，卡片开关和提示词保留，保存失败也不会中断设置页', async () => {
   const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
-  assert.equal(settings.uploadSource(), 'clipboard'); assert.equal(c.uploadSourceValue.text, '剪贴板');
+  h.native.savePreference('ai-tools.upload-source', 'clipboard');
+  h.native.savePreference('ai-tools.attach-first-content', true);
+  h.native.savePreference('ai-tools.extra-text-enabled', true); h.native.savePreference('ai-tools.extra-text', '保留的提示词');
+  settings.refresh(c);
+  assert.equal(settings.uploadSource(), 'none'); assert.equal(h.native.preference('ai-tools.upload-source', ''), 'none');
+  assert.equal(c.uploadSourceValue.text, '无'); assert.equal(c.uploadSourceTitle.text, '上传手写内容');
+  assert.equal(c.attachFirstTitle.text, '上传卡片内容'); assert.equal(c.extraTextTitle.text, '提示词');
+  assert.equal(c.attachFirstSwitch.on, true); assert.equal(settings.uploadExtraText(), '保留的提示词');
+  assert.ok(c.attachFirstTitle.frame.y < c.uploadSourceTitle.frame.y); assert.ok(c.uploadSourceTitle.frame.y < c.extraTextTitle.frame.y);
+  h.native.savePreference('ai-tools.upload-source', 'clipboard');
+  h.context.MNUtil.setLocalDataByKey = () => { throw new Error('模拟迁移写入失败'); };
+  assert.doesNotThrow(() => settings.refresh(c)); assert.equal(settings.uploadSource(), 'none');
+});
+
+test('上传来源默认无，可切换、取消和重新打开恢复，旧显示配置继续生效', async () => {
+  const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
+  assert.equal(settings.uploadSource(), 'none'); assert.equal(c.uploadSourceValue.text, '无');
   assert.equal(c.uploadSourceButton.action, 'chooseUploadSource:');
   h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]);
   h.methods.chooseUploadSource(); const choice = c.cardLocationModeChoice;
-  assert.equal(choice.title.text, '上传来源'); assert.deepEqual(Array.from(choice.values), ['clipboard', 'handwriting', 'mindmap']);
-  c.clipboardOperation = { token: 'old-transfer', handwriting: false };
-  h.methods.selectUploadSource(choice.buttons[1]); await tick();
-  assert.equal(c.uploadSourceValue.text, '卡片手写'); assert.equal(c.clipboardOperation, null);
+  assert.equal(choice.title.text, '上传手写内容'); assert.deepEqual(Array.from(choice.values), ['none', 'mindmap', 'handwriting']);
+  c.uploadOperation = { token: 'old-transfer', handwriting: false };
+  h.methods.selectUploadSource(choice.buttons[2]); await tick();
+  assert.equal(c.uploadSourceValue.text, '卡片手写'); assert.equal(c.uploadOperation, null);
   assert.equal(settings.uploadSource(), 'handwriting');
   assert.ok(c.webView.scripts.some(code => code.includes('source:"handwriting"')));
   h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[3]);
@@ -722,23 +738,23 @@ test('上传来源默认剪贴板，可切换、取消和重新打开恢复，�
   assert.equal(reopened.uploadSourceValue.text, '卡片手写'); assert.equal(reopened.showUploadSwitch.on, false);
   h.context.MNUtil = undefined;
   h.methods.chooseUploadSource(); h.methods.selectUploadSource(reopened.cardLocationModeChoice.buttons[0]); await tick();
-  assert.equal(settings.uploadSource(), 'clipboard'); assert.equal(reopened.uploadSourceValue.text, '剪贴板');
+  assert.equal(settings.uploadSource(), 'none'); assert.equal(reopened.uploadSourceValue.text, '无');
 });
 
 test('脑图手写来源由原生保存，切换取消读取，重新打开恢复并同步网站', async () => {
   const h = mountedPanel(), c = h.controller, settings = h.context.__JFJC_SETTINGS__;
   h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[2]);
   let cancelled = false;
-  c.clipboardOperation = { token: 'pending-media', source: { cancel() { cancelled = true; } } };
-  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[2]); await tick();
+  c.uploadOperation = { token: 'pending-media', source: { cancel() { cancelled = true; } } };
+  h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[1]); await tick();
   assert.equal(settings.uploadSource(), 'mindmap'); assert.equal(c.uploadSourceValue.text, '脑图手写');
-  assert.equal(cancelled, true); assert.equal(c.clipboardOperation, null);
+  assert.equal(cancelled, true); assert.equal(c.uploadOperation, null);
   assert.ok(c.webView.scripts.some(code => code.includes('source:"mindmap"')));
   const reopened = { addon: c.addon }; h.context.self = reopened; h.methods.viewDidLoad();
   assert.equal(reopened.uploadSourceValue.text, '脑图手写');
   h.methods.chooseUploadSource();
   const choice = reopened.cardLocationModeChoice;
-  assert.equal(choice.buttons[2].title, '脑图手写（当前）');
+  assert.equal(choice.buttons[1].title, '脑图手写（当前）');
   for (const [width, height] of [[304, 320], [390, 540], [920, 680]]) {
     reopened.view.frame = { x: 0, y: 0, width, height }; h.methods.viewDidLayoutSubviews();
     assert.ok(choice.sheet.frame.y + choice.sheet.frame.height <= choice.overlay.frame.height);
@@ -750,16 +766,16 @@ test('脑图手写来源由原生保存，切换取消读取，重新打开恢�
 
 test('上传来源保存失败不切换来源、不取消现有操作，并显示失败原因', () => {
   const h = mountedPanel(), c = h.controller;
-  c.clipboardOperation = { token: 'keep' };
+  c.uploadOperation = { token: 'keep' };
   h.context.MNUtil.setLocalDataByKey = () => { throw new Error('模拟写入失败'); };
   h.methods.chooseUploadSource(); h.methods.selectUploadSource(c.cardLocationModeChoice.buttons[1]);
-  assert.equal(h.context.__JFJC_SETTINGS__.uploadSource(), 'clipboard'); assert.equal(c.uploadSourceValue.text, '剪贴板');
-  assert.equal(c.clipboardOperation.token, 'keep'); assert.match(h.hud.at(-1), /设置未保存.*模拟写入失败/);
+  assert.equal(h.context.__JFJC_SETTINGS__.uploadSource(), 'none'); assert.equal(c.uploadSourceValue.text, '无');
+  assert.equal(c.uploadOperation.token, 'keep'); assert.match(h.hud.at(-1), /设置未保存.*模拟写入失败/);
 });
 
-test('粘贴开关关闭时忽略旧网页命令，重新开启才允许读取剪贴板', () => {
+test('粘贴开关关闭时忽略旧网页命令，重新开启才允许执行上传', () => {
   const h = panel(), calls = [], c = { addon: { window: {} }, webView: { evaluateJavaScript(code, cb) { cb('cancelled', null); } } };
-  h.context.__JFJC_CLIPBOARD__.start = async () => calls.push('paste');
+  h.context.__JFJC_UPLOAD__.start = async () => calls.push('paste');
   h.native.savePreference('ai-tools.show-paste', false);
   assert.equal(h.panel.command(c, 'jifengjincaobridge://upload-content?token=&scope=composer-1'), true);
   assert.deepEqual(calls, []);
@@ -1035,7 +1051,7 @@ test('点击修复按钮直接调用原修复逻辑，保留个人评论且可�
 test('导入或折叠期间修复按钮不执行，原逻辑出错时显示失败提示', () => {
   const h = mountedPanel(), c = h.controller, note = legacyRepairCard(h), original = JSON.stringify(note.comments);
   h.methods.openSettings(); h.methods.selectSettingsSection(c.settingsNavigationButtons[1]);
-  for (const busy of ['previewing', 'panelOperation', 'clipboardOperation', 'cardLocationRequest', 'commentFoldOperation', 'session']) {
+  for (const busy of ['previewing', 'panelOperation', 'uploadOperation', 'cardLocationRequest', 'commentFoldOperation', 'session']) {
     c[busy] = busy === 'session' ? { running: true } : {};
     h.methods.repairImportedCards(); assert.equal(JSON.stringify(note.comments), original); assert.match(h.hud.at(-1), /请先完成/);
     c[busy] = null;

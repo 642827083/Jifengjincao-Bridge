@@ -92,7 +92,7 @@ var __JFJC_TRANSPORT__ = (function () {
       __JFJC_CARD_LOCATOR__.cancel(controller.addon); controller.cardLocationRequest = null;
     }
     if (typeof __JFJC_CARD_LOCATOR_UI__ !== 'undefined') __JFJC_CARD_LOCATOR_UI__.cancelMode(controller);
-    if (typeof __JFJC_CLIPBOARD__ !== 'undefined') __JFJC_CLIPBOARD__.cancel(controller);
+    if (typeof __JFJC_UPLOAD__ !== 'undefined') __JFJC_UPLOAD__.cancel(controller);
     if (controller.session) controller.session.cancelled = true;
     return optional(controller, PREFIX + '&&' + PREFIX + '.cancel()').catch(function () {});
   }

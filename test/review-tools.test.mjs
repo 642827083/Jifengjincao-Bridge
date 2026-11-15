@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { browserHost, nativeHost, source, envelope, tick, reviewPageHTML } from './helpers.mjs';
 
-function review(t, responseFor) {
+function review(t, responseFor, format = 'legacy') {
   const question = { ...envelope().questions[0].question, id: 5684, subject: 'math2', question_type: 'solution',
     papers: [{ id: 263, title: '2012 年考研数学二真题', kind: 'official', question_number: '23', year: 2012 }], assets: [] };
   const b = browserHost(undefined, async (url, options) => {
@@ -13,7 +13,7 @@ function review(t, responseFor) {
     });
   });
   b.location.pathname = '/assistant/conversations/review-42/review';
-  b.document.body.innerHTML = reviewPageHTML(); b.runtime.refresh();
+  b.document.body.innerHTML = reviewPageHTML(5684, 29894, format); b.runtime.refresh();
   const tools = b.window.__JFJC_QUESTION_TOOLS__;
   tools.configure({ enabled: true, importEnabled: true });
   t.after(() => {
@@ -42,27 +42,52 @@ function connect(b) {
 async function waitFor(done) { for (let i = 0; i < 160 && !done(); i++) await tick(); assert.ok(done(), '原生操作应结束'); }
 
 test('复盘导入本题实际命令请求题库 5684，不请求上下文 29894，也不返回 404', async t => {
-  const b = review(t), h = connect(b);
-  b.document.querySelector('.jfjc-import-single').click();
-  const address = b.frames.at(-1), target = JSON.parse(new URL(address).searchParams.get('scope'));
-  assert.equal(h.panel.command(h.c, address), true);
-  await waitFor(() => !h.c.previewing);
-  assert.equal(target.questionId, 5684);
-  assert.deepEqual(b.calls.map(call => new URL(call.url).pathname), ['/api/questions/5684']);
-  assert.equal(h.c.lastResult?.created, 1, h.hud.join('\n'));
-  assert.match(h.parent.childNotes[0].comments[1].text, /JFJC_QUESTION:263:5684/);
-  assert.equal(b.document.querySelector('.jfjc-import-single').disabled, false);
+  for (const format of ['legacy', 'hash']) {
+    const b = review(t, undefined, format), h = connect(b);
+    b.document.querySelector('.jfjc-import-single').click();
+    const address = b.frames.at(-1), target = JSON.parse(new URL(address).searchParams.get('scope'));
+    assert.equal(h.panel.command(h.c, address), true);
+    await waitFor(() => !h.c.previewing);
+    assert.equal(target.questionId, 5684);
+    assert.deepEqual(b.calls.map(call => new URL(call.url).pathname), ['/api/questions/5684']);
+    assert.equal(h.c.lastResult?.created, 1, h.hud.join('\n'));
+    assert.match(h.parent.childNotes[0].comments[1].text, /JFJC_QUESTION:263:5684/);
+    assert.equal(b.document.querySelector('.jfjc-import-single').disabled, false);
+  }
 });
 
 test('复盘定位实际命令找到真实题号的已有卡片，不按上下文编号误报无卡', async t => {
-  const b = review(t), h = connect(b);
-  const note = h.database.createNoteWithTitleTopicid('2012 年数学二 · 第 23 题', 'book-1');
-  note.comments = [{ text: '题干' }, { text: '[查看原题](url)\n<!-- JFJC_QUESTION:263:5684 -->' }];
-  b.document.querySelector('.jfjc-locate-card').click();
-  assert.equal(h.panel.command(h.c, b.frames.at(-1)), true);
-  await waitFor(() => !h.c.cardLocationRequest);
-  assert.deepEqual(h.events, [['focus', note.noteId], ['locate', note.noteId]], h.hud.join('\n'));
-  assert.equal(h.c.visible, false); assert.equal(b.calls.length, 0);
+  for (const format of ['legacy', 'hash']) {
+    const b = review(t, undefined, format), h = connect(b);
+    const note = h.database.createNoteWithTitleTopicid('2012 年数学二 · 第 23 题', 'book-1');
+    note.comments = [{ text: '题干' }, { text: '[查看原题](url)\n<!-- JFJC_QUESTION:263:5684 -->' }];
+    b.document.querySelector('.jfjc-locate-card').click();
+    assert.equal(h.panel.command(h.c, b.frames.at(-1)), true);
+    await waitFor(() => !h.c.cardLocationRequest);
+    assert.deepEqual(h.events, [['focus', note.noteId], ['locate', note.noteId]], h.hud.join('\n'));
+    assert.equal(h.c.visible, false); assert.equal(b.calls.length, 0);
+  }
+});
+
+test('新版复盘题号冲突、多编号、非法编号及加载中均禁用，恢复正确题号后自动可用', async t => {
+  for (const change of ['text', 'label', 'parent-conflict', 'missing', 'multiple', 'zero', 'unsafe', 'busy']) {
+    const b = review(t, undefined, 'hash'), source = b.document.querySelector('.review-question-source');
+    const number = source.querySelector('span[aria-label]'), before = source.innerHTML;
+    assert.equal(b.document.querySelector('.jfjc-import-single').disabled, false, change);
+    if (change === 'text') number.textContent = '#9999';
+    if (change === 'label') number.setAttribute('aria-label', '#9999');
+    if (change === 'parent-conflict') source.setAttribute('aria-label', '题号 9999');
+    if (change === 'missing') number.remove();
+    if (change === 'multiple') source.appendChild(number.cloneNode(true));
+    if (change === 'zero' || change === 'unsafe') { const id = change === 'zero' ? '0' : '9007199254740992'; number.textContent = '#' + id; number.setAttribute('aria-label', '#' + id); }
+    if (change === 'busy') b.document.querySelector('.review-question-pane').setAttribute('aria-busy', 'true');
+    await waitFor(() => b.document.querySelector('.jfjc-import-single').disabled);
+    const target = b.window.__JFJC_QUESTION_TOOLS__.uploadContext(b.document.querySelector('.review-chat-pane'));
+    assert.equal(target.questionPending, true); assert.equal(target.question, null);
+    source.innerHTML = before; source.removeAttribute('aria-label'); b.document.querySelector('.review-question-pane').removeAttribute('aria-busy');
+    await waitFor(() => !b.document.querySelector('.jfjc-import-single').disabled);
+    assert.equal(b.document.querySelector('.jfjc-import-single').__jfjcTarget.questionId, 5684);
+  }
 });
 
 test('复盘缺少题卡、上下文未知、题号冲突及加载失败时按钮禁用，不借用其他分栏题号', t => {

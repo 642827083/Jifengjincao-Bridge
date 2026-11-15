@@ -103,20 +103,20 @@ var __JFJC_PANEL__ = (function () {
   }
   async function inject(controller) {
     await T.waitReady(controller);
-    const result = await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + ',importEnabled:' + __JFJC_SETTINGS__.showSingleImport() + '});window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + '});return "injected";})()');
+    const result = await T.evaluate(controller, '(function(){' + __JFJC_PAGE_SCRIPT__ + ';window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + ',importEnabled:' + __JFJC_SETTINGS__.showSingleImport() + '});window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + ',hasPrompt:' + Boolean(__JFJC_SETTINGS__.uploadExtraText()) + '});return "injected";})()');
     return result;
   }
   function syncQuestionTools(controller) {
     return T.optional(controller, 'window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.configure({enabled:' + __JFJC_SETTINGS__.showLocateCard() + ',importEnabled:' + __JFJC_SETTINGS__.showSingleImport() + '})');
   }
   function syncAiTools(controller) {
-    return T.optional(controller, 'window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + '})');
+    return T.optional(controller, 'window.__JFJC_REVIEW__&&window.__JFJC_REVIEW__.configure({enabled:' + __JFJC_SETTINGS__.showUpload() + ',source:' + JSON.stringify(__JFJC_SETTINGS__.uploadSource()) + ',attachFirst:' + __JFJC_SETTINGS__.attachFirstContent() + ',hasPrompt:' + Boolean(__JFJC_SETTINGS__.uploadExtraText()) + '})');
   }
   async function singleImport(controller, token, target) {
     let session;
     try {
       if (!__JFJC_SETTINGS__.showSingleImport() || controller.visible === false || controller.activePage && controller.activePage !== 'math') throw new Error('导入本题未启用');
-      if (controller.cardLocationRequest || controller.previewing || controller.panelOperation || controller.clipboardOperation || controller.session && controller.session.running) throw new Error('请先完成当前任务，再导入本题');
+      if (controller.cardLocationRequest || controller.previewing || controller.panelOperation || controller.uploadOperation || controller.session && controller.session.running) throw new Error('请先完成当前任务，再导入本题');
       const context = N.context(controller.addon);
       // 在任何异步读取前固定所选卡片，读取期间的选中变化不改变落点。
       const destination = __JFJC_SINGLE_IMPORT__.capture(controller.addon, context, __JFJC_SETTINGS__.singleImportPosition());
@@ -137,7 +137,7 @@ var __JFJC_PANEL__ = (function () {
   }
   async function locateCard(controller, token, target) {
     if (!__JFJC_SETTINGS__.showLocateCard() || controller.visible === false || controller.activePage && controller.activePage !== 'math') return;
-    if (controller.cardLocationRequest || controller.previewing || controller.panelOperation || controller.clipboardOperation || controller.session && controller.session.running) {
+    if (controller.cardLocationRequest || controller.previewing || controller.panelOperation || controller.uploadOperation || controller.session && controller.session.running) {
       N.show(controller.addon, '请先完成当前任务，再定位卡片');
       T.evaluate(controller, 'window.__JFJC_QUESTION_TOOLS__&&window.__JFJC_QUESTION_TOOLS__.finish(' + JSON.stringify(token) + ')').catch(function () {}); return;
     }
@@ -173,7 +173,7 @@ var __JFJC_PANEL__ = (function () {
     try {
       if (['single', 'selected', 'all'].indexOf(scope) < 0) throw new Error('导入入口无效');
       if (controller.cardLocationRequest) throw new Error('请先完成当前卡片定位');
-      if (controller.clipboardOperation || controller.panelOperation) throw new Error('请先完成当前任务，再打开选题导入');
+      if (controller.uploadOperation || controller.panelOperation) throw new Error('请先完成当前任务，再打开选题导入');
       if (controller.session && controller.session.running) throw new Error('请先停止或等待当前导入任务');
       const context = N.context(controller.addon);
       await inject(controller);
@@ -218,7 +218,7 @@ var __JFJC_PANEL__ = (function () {
       if (!__JFJC_SETTINGS__.showUpload()) return true;
       if (controller.cardLocationRequest) { N.show(controller.addon, '请先完成当前卡片定位'); return true; }
       if (controller.previewing || controller.panelOperation || controller.session && controller.session.running) { N.show(controller.addon, '请先完成当前导入，再上传'); return true; }
-      __JFJC_CLIPBOARD__.start(controller, scope).catch(function (error) { N.show(controller.addon, String(error.message || error)); }); return true;
+      __JFJC_UPLOAD__.start(controller, scope).catch(function (error) { N.show(controller.addon, String(error.message || error)); }); return true;
     }
     if (match[1] === 'preview') { preview(controller, scope); return true; }
     const session = controller.session;
@@ -317,7 +317,7 @@ var __JFJC_PANEL__ = (function () {
       if (/^jifengjincaobridge:/i.test(address)) { command(self, address); return false; }
       // 主页面导航取消当前任务；子资源和桥接 iframe 不改变导入落点。
       const main = N.value(request, 'mainDocumentURL');
-      if ((self.session || self.clipboardOperation || self.cardLocationRequest) && main && String(N.value(main, 'absoluteString') || '') === address) T.cancel(self);
+      if ((self.session || self.uploadOperation || self.cardLocationRequest) && main && String(N.value(main, 'absoluteString') || '') === address) T.cancel(self);
       return /^(https?:|about:)/i.test(address);
     },
     webViewDidFinishLoad: function (webView) {

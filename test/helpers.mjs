@@ -66,7 +66,7 @@ export function nativeHost() {
     NSJSONSerialization: { JSONObjectWithDataOptions: data => JSON.parse(data.json), dataWithJSONObjectOptions: value => ({ writeToFileAtomically(p, atomic) { if (!atomic || flags.saveFailure) return false; files.set(p, JSON.stringify(value)); return true; } }) }
   };
   const context = vm.createContext(host);
-  for (const name of ['JifengjincaoNative', 'JifengjincaoNavigationMotion', 'JifengjincaoPanelNavigation', 'JifengjincaoSettingsNavigation', 'JifengjincaoSettings', 'BBKaoyanAdapter', 'BBKaoyanSourceLink', 'JifengjincaoCommentFold', 'BBKaoyanFormat', 'BBKaoyanImportStore', 'BBKaoyanTransport', 'JifengjincaoHandwriting', 'BBKaoyanClipboard', 'BBKaoyanImport', 'JifengjincaoCardLocatorUI', 'JifengjincaoCardLocator', 'JifengjincaoSingleImport', 'WebBridgeCommands']) vm.runInContext(source('src/' + name + '.js'), context, { filename: name });
+  for (const name of ['JifengjincaoNative', 'JifengjincaoNavigationMotion', 'JifengjincaoPanelNavigation', 'JifengjincaoSettingsNavigation', 'JifengjincaoSettings', 'BBKaoyanAdapter', 'BBKaoyanSourceLink', 'JifengjincaoCommentFold', 'BBKaoyanFormat', 'BBKaoyanImportStore', 'BBKaoyanTransport', 'JifengjincaoHandwriting', 'JifengjincaoUpload', 'BBKaoyanImport', 'JifengjincaoCardLocatorUI', 'JifengjincaoCardLocator', 'JifengjincaoSingleImport', 'WebBridgeCommands']) vm.runInContext(source('src/' + name + '.js'), context, { filename: name });
   function undo() {
     const state = snapshots.pop(); notes.clear();
     state.forEach(s => { const n = rawNote(s.id, s.title); n.comments = s.comments; n.mediaList = s.mediaList; notes.set(s.id,n); });
@@ -107,8 +107,10 @@ export function browserHost(data = envelope(), responseFor, origin = 'https://bb
 }
 export async function tick() { await new Promise(resolve => setTimeout(resolve, 0)); }
 // 复盘记录编号与题库题号属于不同身份，保持与网站左右分栏结构一致。
-export function reviewPageHTML(questionId = 5684, reviewItemId = 29894) {
-  return '<div class="review-workspace-grid"><section class="review-question-pane"><article class="review-question-card"><header class="review-question-heading"><h2 class="review-question-kicker">第 23 题 · 题库内容</h2><p class="review-question-source" aria-label="题号 ' + questionId + '"><span>题号：' + questionId + '</span><span> · 三、解答题</span></p></header><p>题干</p></article></section><section class="review-chat-pane"><div class="review-chat-heading"><span>本题对话</span><small>题目上下文 #' + reviewItemId + '</small></div></section></div>';
+export function reviewPageHTML(questionId = 5684, reviewItemId = 29894, format = 'legacy') {
+  const source = format === 'hash' ? '<p class="review-question-source"><span class="review-question-origin" title="2012 年数学二真题">2012 年数学二真题 · 第 23 题</span><span> · </span><span aria-label="#' + questionId + '">#' + questionId + '</span></p>'
+    : '<p class="review-question-source" aria-label="题号 ' + questionId + '"><span>题号：' + questionId + '</span><span> · 三、解答题</span></p>';
+  return '<div class="review-workspace-grid"><section class="review-question-pane"><article class="review-question-card"><header class="review-question-heading"><h2 class="review-question-kicker">第 23 题 · 题库内容</h2>' + source + '</header><p>题干</p></article></section><section class="review-chat-pane"><div class="review-chat-heading"><span>本题对话</span><small>题目上下文 #' + reviewItemId + '</small></div></section></div>';
 }
 export async function open(browser, scope = 'all') { await browser.runtime.open(scope, { token: 'test-task', target: '我的学习集', content: 'questionAnswer' }); }
 export async function packet(browser, start) {

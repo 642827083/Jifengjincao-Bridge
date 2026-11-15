@@ -8,7 +8,7 @@
       return part.kind !== 'title' && part.source !== 'mindmap' && Number.isSafeInteger(part.index) && part.index >= 0
         && !(part.index === 0 && /^(text|rich_text)$/.test(part.kind) && typeof part.text === 'string' && !part.text.trim() && !part.truncated);
     });
-    if (!parts.length) throw new Error('来源卡片首条没有可附带的图文内容');
+    if (!parts.length) throw new Error('来源卡片首条没有可上传的图文内容');
     const index = Math.min.apply(Math, parts.map(function (part) { return part.index; }));
     const group = parts.filter(function (part) { return part.index === index; }), texts = [], images = [], seen = new Set();
     group.forEach(function (part) {
@@ -23,7 +23,7 @@
       if (!images.length) throw new Error('来源卡片首条图片未通过官方接口返回，请先保存图片');
       text = text.replace(/!\[[^\]]*\]\([^\r\n)]*\)/g, '').trim();
     }
-    if (!text && !images.length) throw new Error('来源卡片首条没有可附带的图文内容');
+    if (!text && !images.length) throw new Error('来源卡片首条没有可上传的图文内容');
     if (text.length > MAX_TEXT) throw new Error('来源卡片首条文字过长，请缩减后重试');
     if (images.length > 4) throw new Error('首条图片与脑图手写合计超过 5 个附件，请缩减图片后重试');
     const signature = JSON.stringify(group.map(function (part) { return [part.index, part.kind, part.contentId || '', part.text || '', part.renderable, part.truncated, part.source || '']; }));
@@ -85,7 +85,7 @@
       // 页面先握手获取固定来源，避免把读取任务投递给尚未初始化的页面。
       input = await MNBridge.send('receiveHandwriting', { phase: 'ready' });
       if (!input || typeof input.token !== 'string') throw new Error('官方媒体页面未能连接插件，请重新打开插件后重试');
-      const note = await readNote(input.noteId), part = input.source === 'clipboard' ? null : selectedPart(note, input), extra = input.attachFirst ? firstContent(note) : null;
+      const note = await readNote(input.noteId), part = input.source === 'none' ? null : selectedPart(note, input), extra = input.attachFirst ? firstContent(note) : null;
       const records = [], files = []; let bytes = 0;
       for (const item of (part ? [part] : []).concat(extra ? extra.images : [])) {
         const route = '/notes/' + encodeURIComponent(input.noteId) + '/content/' + encodeURIComponent(item.contentId) + '?maxEdge=2048';

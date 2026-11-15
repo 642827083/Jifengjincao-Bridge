@@ -18,8 +18,12 @@ var __JFJC_SETTINGS__ = (function () {
   function showLocateCard() { return enabled(LOCATE_KEY); }
   function showUpload() { return enabled(PASTE_KEY); }
   function uploadSource() {
-    const source = N.preference(UPLOAD_SOURCE_KEY, 'clipboard');
-    return ['clipboard', 'handwriting', 'mindmap'].indexOf(source) >= 0 ? source : 'clipboard';
+    const source = N.preference(UPLOAD_SOURCE_KEY, 'none');
+    if (source === 'clipboard') {
+      try { N.savePreference(UPLOAD_SOURCE_KEY, 'none'); }
+      catch (error) { console.log('[Jifengjincao Bridge] 旧上传设置未能保存为无：' + String(error.message || error)); }
+    }
+    return ['none', 'handwriting', 'mindmap'].indexOf(source) >= 0 ? source : 'none';
   }
   function showSingleImport() { return Boolean(N.preference(SINGLE_KEY, false)); }
   function singleImportPosition() { return N.preference(POSITION_KEY, 'child') === 'sibling' ? 'sibling' : 'child'; }
@@ -139,8 +143,8 @@ var __JFJC_SETTINGS__ = (function () {
     controller.showUploadSwitch.addTargetActionForControlEvents(controller, 'toggleShowUpload:', 1 << 12); ai.addSubview(controller.showUploadSwitch);
     controller.uploadSourceDivider = new UIView({ x: 0, y: 0, width: 1, height: 0.5 });
     controller.uploadSourceDivider.backgroundColor = UIColor.colorWithWhiteAlpha(0.8, 0.4); ai.addSubview(controller.uploadSourceDivider);
-    controller.uploadSourceTitle = label('上传来源', 16, true); ai.addSubview(controller.uploadSourceTitle);
-    controller.uploadSourceDescription = label('剪贴板、卡片手写或脑图手写；优先匹配题号', 12, false);
+    controller.uploadSourceTitle = label('上传手写内容', 16, true); ai.addSubview(controller.uploadSourceTitle);
+    controller.uploadSourceDescription = label('选择已保存的手写来源；优先匹配题号', 12, false);
     controller.uploadSourceDescription.numberOfLines = 0; ai.addSubview(controller.uploadSourceDescription);
     controller.uploadSourceValue = label('', 14, false); controller.uploadSourceValue.textAlignment = 2; ai.addSubview(controller.uploadSourceValue);
     controller.uploadSourceChevron = label('›', 25, false); controller.uploadSourceChevron.textAlignment = 1; ai.addSubview(controller.uploadSourceChevron);
@@ -149,15 +153,15 @@ var __JFJC_SETTINGS__ = (function () {
     controller.uploadSourceButton.addTargetActionForControlEvents(controller, 'chooseUploadSource:', 1 << 6); ai.addSubview(controller.uploadSourceButton);
     controller.attachFirstDivider = new UIView({ x: 0, y: 0, width: 1, height: 0.5 });
     controller.attachFirstDivider.backgroundColor = UIColor.colorWithWhiteAlpha(0.8, 0.4); ai.addSubview(controller.attachFirstDivider);
-    controller.attachFirstTitle = label('附加卡片内容', 16, true); ai.addSubview(controller.attachFirstTitle);
-    controller.attachFirstDescription = label('上传时同时附带来源卡片的首条图文，适用全部来源', 12, false);
+    controller.attachFirstTitle = label('上传卡片内容', 16, true); ai.addSubview(controller.attachFirstTitle);
+    controller.attachFirstDescription = label('上传来源卡片的首条图文，可独立使用', 12, false);
     controller.attachFirstDescription.numberOfLines = 0; ai.addSubview(controller.attachFirstDescription);
     controller.attachFirstSwitch = new UISwitch({ x: 0, y: 0, width: 51, height: 31 });
     controller.attachFirstSwitch.addTargetActionForControlEvents(controller, 'toggleAttachFirstContent:', 1 << 12); ai.addSubview(controller.attachFirstSwitch);
     controller.extraTextDivider = new UIView({ x: 0, y: 0, width: 1, height: 0.5 });
     controller.extraTextDivider.backgroundColor = UIColor.colorWithWhiteAlpha(0.8, 0.4); ai.addSubview(controller.extraTextDivider);
-    controller.extraTextTitle = label('附加文字', 16, true); ai.addSubview(controller.extraTextTitle);
-    controller.extraTextDescription = label('每次上传时，将已保存的文字追加到提问末尾', 12, false);
+    controller.extraTextTitle = label('提示词', 16, true); ai.addSubview(controller.extraTextTitle);
+    controller.extraTextDescription = label('每次上传时加入已保存的提示词，也可单独使用', 12, false);
     controller.extraTextDescription.numberOfLines = 0; ai.addSubview(controller.extraTextDescription);
     controller.extraTextSwitch = new UISwitch({ x: 0, y: 0, width: 51, height: 31 });
     controller.extraTextSwitch.addTargetActionForControlEvents(controller, 'toggleExtraText:', 1 << 12); ai.addSubview(controller.extraTextSwitch);
@@ -183,7 +187,7 @@ var __JFJC_SETTINGS__ = (function () {
       if (editor && editor.superview) editor.removeFromSuperview();
       controller.extraTextEditor = null; controller.extraTextWebReady = false;
       controller.extraTextHint.text = '文字输入框加载失败，其他功能可继续使用';
-      console.log('[Jifengjincao Bridge] 附加文字输入框加载失败：' + String(error.message || error));
+      console.log('[Jifengjincao Bridge] 提示词输入框加载失败：' + String(error.message || error));
     }
     refresh(controller);
     controller.settingsReady = true;
@@ -223,13 +227,13 @@ var __JFJC_SETTINGS__ = (function () {
     controller.singleImportPositionButton.frame = { x: 0, y: 49 + rowHeight * 3, width: width, height: rowHeight };
     group(controller.aiToolsSection, controller.aiToolsTitle, controller.aiToolsDivider, 0, aiHeight);
     row(controller.showUploadTitle, controller.showUploadDescription, controller.showUploadSwitch, 0);
-    const uploadCenter = row(controller.uploadSourceTitle, controller.uploadSourceDescription, null, 1);
-    controller.uploadSourceDivider.frame = dividerFrame;
+    row(controller.attachFirstTitle, controller.attachFirstDescription, controller.attachFirstSwitch, 1);
+    controller.attachFirstDivider.frame = dividerFrame;
+    const uploadCenter = row(controller.uploadSourceTitle, controller.uploadSourceDescription, null, 2);
+    controller.uploadSourceDivider.frame = { x: 20, y: 48 + rowHeight * 2, width: Math.max(0, width - 40), height: 0.5 };
     controller.uploadSourceValue.frame = { x: Math.max(20, width - 192), y: uploadCenter - 12, width: 132, height: 24 };
     controller.uploadSourceChevron.frame = { x: Math.max(20, width - 50), y: uploadCenter - 18, width: 30, height: 36 };
-    controller.uploadSourceButton.frame = { x: 0, y: 49 + rowHeight, width: width, height: rowHeight };
-    row(controller.attachFirstTitle, controller.attachFirstDescription, controller.attachFirstSwitch, 2);
-    controller.attachFirstDivider.frame = { x: 20, y: 48 + rowHeight * 2, width: Math.max(0, width - 40), height: 0.5 };
+    controller.uploadSourceButton.frame = { x: 0, y: 49 + rowHeight * 2, width: width, height: rowHeight };
     row(controller.extraTextTitle, controller.extraTextDescription, controller.extraTextSwitch, 3);
     controller.extraTextDivider.frame = { x: 20, y: 48 + rowHeight * 3, width: Math.max(0, width - 40), height: 0.5 };
     const editorY = 49 + rowHeight * 4;
@@ -257,7 +261,7 @@ var __JFJC_SETTINGS__ = (function () {
     if (controller.cardLocationModeValue) controller.cardLocationModeValue.text = cardLocationMode() === 'locate' ? '仅定位' : '定位并聚焦';
     if (controller.showSingleImportSwitch) controller.showSingleImportSwitch.on = showSingleImport();
     if (controller.showUploadSwitch) controller.showUploadSwitch.on = showUpload();
-    if (controller.uploadSourceValue) controller.uploadSourceValue.text = { clipboard: '剪贴板', handwriting: '卡片手写', mindmap: '脑图手写' }[uploadSource()];
+    if (controller.uploadSourceValue) controller.uploadSourceValue.text = { none: '无', handwriting: '卡片手写', mindmap: '脑图手写' }[uploadSource()];
     if (controller.attachFirstSwitch) {
       controller.attachFirstSwitch.on = attachFirstContent();
     }
@@ -294,15 +298,15 @@ var __JFJC_SETTINGS__ = (function () {
   }
   function toggleUpload(controller, sender) {
     toggleOption(controller, sender || controller.showUploadSwitch, PASTE_KEY);
-    if (!showUpload()) __JFJC_CLIPBOARD__.cancel(controller);
+    if (!showUpload()) __JFJC_UPLOAD__.cancel(controller);
     __JFJC_PANEL__.syncAiTools(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 上传按钮更新失败：' + String(error.message || error)); });
   }
   function chooseUploadSource(controller) {
-    __JFJC_CARD_LOCATOR_UI__.chooseOption(controller, '上传来源', ['clipboard', 'handwriting', 'mindmap'], ['剪贴板', '卡片手写', '脑图手写'], uploadSource(), 'selectUploadSource:', function (source) {
+    __JFJC_CARD_LOCATOR_UI__.chooseOption(controller, '上传手写内容', ['none', 'mindmap', 'handwriting'], ['无', '脑图手写', '卡片手写'], uploadSource(), 'selectUploadSource:', function (source) {
       try {
         const previous = uploadSource();
         N.savePreference(UPLOAD_SOURCE_KEY, source); refresh(controller);
-        if (previous !== source) __JFJC_CLIPBOARD__.cancel(controller);
+        if (previous !== source) __JFJC_UPLOAD__.cancel(controller);
         __JFJC_PANEL__.syncAiTools(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 上传来源更新失败：' + String(error.message || error)); });
       } catch (error) { refresh(controller); N.show(controller.addon, '设置未保存：' + String(error.message || error)); }
     });
@@ -310,13 +314,14 @@ var __JFJC_SETTINGS__ = (function () {
   function toggleAttachFirstContent(controller, sender) {
     const previous = attachFirstContent();
     toggleOption(controller, sender || controller.attachFirstSwitch, FIRST_CONTENT_KEY);
-    if (previous !== attachFirstContent()) __JFJC_CLIPBOARD__.cancel(controller);
-    __JFJC_PANEL__.syncAiTools(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 附加卡片内容更新失败：' + String(error.message || error)); });
+    if (previous !== attachFirstContent()) __JFJC_UPLOAD__.cancel(controller);
+    __JFJC_PANEL__.syncAiTools(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 上传卡片内容更新失败：' + String(error.message || error)); });
   }
   function toggleExtraText(controller, sender) {
     const previous = uploadExtraText();
     toggleOption(controller, sender || controller.extraTextSwitch, EXTRA_ENABLED_KEY);
-    if (previous !== uploadExtraText()) __JFJC_CLIPBOARD__.cancel(controller);
+    if (previous !== uploadExtraText()) __JFJC_UPLOAD__.cancel(controller);
+    __JFJC_PANEL__.syncAiTools(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 提示词更新失败：' + String(error.message || error)); });
   }
   function saveExtraText(controller) {
     if (!controller.extraTextEditor || !controller.extraTextWebReady) { N.show(controller.addon, '文字输入框尚未就绪，请稍候'); return; }
@@ -325,12 +330,13 @@ var __JFJC_SETTINGS__ = (function () {
     });
   }
   function persistExtraText(controller, raw) {
-    if (typeof raw !== 'string') throw new Error('附加文字格式无效');
+    if (typeof raw !== 'string') throw new Error('提示词格式无效');
     const text = raw.replace(/\r\n?/g, '\n');
-    if (text.length > MAX_EXTRA_TEXT) throw new Error('附加文字不能超过 16384 个字符');
+    if (text.length > MAX_EXTRA_TEXT) throw new Error('提示词不能超过 16384 个字符');
     const previous = uploadExtraText(); N.savePreference(EXTRA_TEXT_KEY, text);
-    if (previous !== uploadExtraText()) __JFJC_CLIPBOARD__.cancel(controller);
-    N.show(controller.addon, '附加文字已保存');
+    if (previous !== uploadExtraText()) __JFJC_UPLOAD__.cancel(controller);
+    N.show(controller.addon, '提示词已保存');
+    __JFJC_PANEL__.syncAiTools(controller).catch(function (error) { console.log('[Jifengjincao Bridge] 提示词更新失败：' + String(error.message || error)); });
     return { text: text };
   }
   function choosePosition(controller) {
@@ -350,7 +356,7 @@ var __JFJC_SETTINGS__ = (function () {
     catch (error) { N.show(controller.addon, '设置未保存：' + String(error.message || error)); }
     refresh(controller);
   }
-  function foldBusy(controller) { return controller.previewing || controller.panelOperation || controller.clipboardOperation || controller.cardLocationRequest || controller.session && controller.session.running; }
+  function foldBusy(controller) { return controller.previewing || controller.panelOperation || controller.uploadOperation || controller.cardLocationRequest || controller.session && controller.session.running; }
   async function foldExisting(controller, collapsed) {
     if (controller.activePage !== 'settings' || controller.commentFoldOperation) return;
     if (foldBusy(controller)) { N.show(controller.addon, '请先完成当前导入或题目操作'); return; }

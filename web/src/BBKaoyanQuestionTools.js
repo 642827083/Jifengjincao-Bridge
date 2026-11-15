@@ -5,6 +5,23 @@
   const reviewSnapshots = new WeakMap(), solveSnapshots = new WeakMap(); let reviewSequence = 0, solveSequence = 0;
   function positive(value) { const n = Number(value); return Number.isSafeInteger(n) && n > 0 ? n : 0; }
   function route() { return window.location.pathname + window.location.search; }
+  function reviewQuestionId(source) {
+    if (!source) return 0;
+    const text = /^题号[：:]\s*([1-9]\d*)(?:\s|$)/.exec(source.textContent.trim());
+    const aria = source.getAttribute('aria-label'), label = aria && /^题号\s+([1-9]\d*)$/.exec(aria.trim());
+    if (aria !== null && !label) return 0;
+    // 新版把题库编号放在独立的井号标签内，来源试卷中的年份与卷内题号不能参与识别。
+    const numbers = source.querySelectorAll('span[aria-label^="#"]');
+    if (numbers.length) {
+      if (numbers.length !== 1 || text) return 0;
+      const number = numbers[0], visible = /^#([1-9]\d*)$/.exec(number.textContent.trim());
+      const accessible = /^#([1-9]\d*)$/.exec(number.getAttribute('aria-label').trim());
+      const id = positive(visible && visible[1]);
+      return id && accessible && positive(accessible[1]) === id && (!label || positive(label[1]) === id) ? id : 0;
+    }
+    const id = positive(text && text[1]);
+    return id && (!label || positive(label[1]) === id) ? id : 0;
+  }
   function reviewTarget(host) {
     const workspace = host.closest('.review-workspace-grid');
     if (!workspace) return null;
@@ -15,10 +32,8 @@
     if (cards.length !== 1 || pane.querySelector('.review-missing-state') || [workspace, pane, cards[0]].some(function (node) { return node.getAttribute('aria-busy') === 'true'; })) return unavailable();
     const card = cards[0], source = card.querySelector('.review-question-source'), context = host.querySelector('small');
     const item = context && /^题目上下文\s*#([1-9]\d*)$/.exec(context.textContent.trim());
-    const text = source && /^题号[：:]\s*([1-9]\d*)(?:\s|$)/.exec(source.textContent.trim());
-    const aria = source && source.getAttribute('aria-label'), label = aria && /^题号\s+([1-9]\d*)$/.exec(aria.trim());
-    const questionId = positive(label ? label[1] : text && text[1]), itemId = positive(item && item[1]);
-    if (!questionId || !itemId || !text || positive(text[1]) !== questionId || (aria !== null && !label)) return unavailable();
+    const questionId = reviewQuestionId(source), itemId = positive(item && item[1]);
+    if (!questionId || !itemId) return unavailable();
     // 题库编号用于读题和找卡；复盘记录、左右分栏及题卡实例只用于防止切题后沿用旧请求。
     let snapshot = reviewSnapshots.get(workspace);
     if (!snapshot || snapshot.host !== host || snapshot.card !== card || snapshot.questionId !== questionId || snapshot.itemId !== itemId) {

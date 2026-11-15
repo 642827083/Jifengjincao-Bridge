@@ -10,7 +10,7 @@ JSB.require('BBKaoyanFormat');
 JSB.require('BBKaoyanImportStore');
 JSB.require('BBKaoyanTransport');
 JSB.require('JifengjincaoHandwriting');
-JSB.require('BBKaoyanClipboard');
+JSB.require('JifengjincaoUpload');
 JSB.require('BBKaoyanImport');
 JSB.require('JifengjincaoCardLocatorUI');
 JSB.require('JifengjincaoCardLocator');

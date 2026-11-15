@@ -66,7 +66,7 @@ try {
     $extraHtml = ($extraResource -replace '^var __JFJC_EXTRA_TEXT_HTML__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $extraTemplate = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ExtraTextPage.html') -Raw -Encoding UTF8
     $extraScript = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ExtraTextPage.js') -Raw -Encoding UTF8
-    if ($extraHtml -cne $extraTemplate.Replace('/* 附加文字脚本 */', ($inkBridge + "`n" + $extraScript))) { throw 'Extra text page does not match web source' }
+    if ($extraHtml -cne $extraTemplate.Replace('/* 提示词脚本 */', ($inkBridge + "`n" + $extraScript))) { throw 'Extra text page does not match web source' }
     $importResource = Read-EntryText 'web-dist/ImportPageResource.js'
     $importHtml = ($importResource -replace '^var __JFJC_IMPORT_HTML__ = ', '' -replace ';\s*$', '') | ConvertFrom-Json
     $importTemplate = Get-Content -LiteralPath (Join-Path $projectRoot 'web/src/ImportPage.html') -Raw -Encoding UTF8

@@ -26,5 +26,5 @@ export function handwritingPageHTML() {
 export function extraTextPageHTML() {
   const bridge = fs.readFileSync(path.join(root, 'web/src/lib/mnBridge.js'), 'utf8').replace('export default MNBridge;', '');
   const script = fs.readFileSync(path.join(root, 'web/src/ExtraTextPage.js'), 'utf8');
-  return fs.readFileSync(path.join(root, 'web/src/ExtraTextPage.html'), 'utf8').replace('/* 附加文字脚本 */', () => bridge + '\n' + script);
+  return fs.readFileSync(path.join(root, 'web/src/ExtraTextPage.html'), 'utf8').replace('/* 提示词脚本 */', () => bridge + '\n' + script);
 }
